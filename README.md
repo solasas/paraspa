@@ -2,6 +2,14 @@
 
 A complete REST API backend for a community skill exchange platform built with Spring Boot 3.2.0 and PostgreSQL.
 
+> **This repository is the backend only** (REST API + WebSocket chat). It has no user interface.
+> To install and use the app, get the frontend from **[solasas/skillswap-mobile-app](https://github.com/solasas/skillswap-mobile-app)** (see [Frontend / Mobile App](#frontend--mobile-app) below).
+
+| Part | Repository | What it is |
+|---|---|---|
+| **Backend** (this repo) | [solasas/skillswap](https://github.com/solasas/skillswap) | Spring Boot API, database, authentication, real-time chat |
+| **Frontend / mobile app** | [solasas/skillswap-mobile-app](https://github.com/solasas/skillswap-mobile-app) | The app users install and use; calls this API |
+
 ## Features
 
 SkillSwap lets people trade skills ("I teach guitar, I want to learn Python"). The platform covers the whole journey: sign up, list skills, find a partner, agree on a swap, schedule and run sessions, chat, and rate each other.
@@ -49,17 +57,25 @@ SkillSwap lets people trade skills ("I teach guitar, I want to learn Python"). T
 - **Dockerised**: multi-stage `Dockerfile` and a `docker-compose.yml` that starts the API with PostgreSQL
 - **Unit-tested** services (JUnit 5 + Mockito) and JWT security components
 
-## Mobile App
+## Frontend / Mobile App
 
-SkillSwap has a companion mobile app that talks to this API. You can download the app, or clone the source and build it yourself:
+This repo contains only the server. The app that people actually use lives in its own repository:
 
-- **Source code**: [github.com/solasas/skillswap-mobile-app](https://github.com/solasas/skillswap-mobile-app)
+**https://github.com/solasas/skillswap-mobile-app**
+
+To install the frontend, clone it and follow the setup instructions in that repository:
 
 ```bash
 git clone https://github.com/solasas/skillswap-mobile-app.git
 ```
 
-Start this backend first (see below) so the app has an API to connect to.
+### Running the full app
+1. Start this backend first (see [Setup Instructions](#setup-instructions)); it listens on `http://localhost:8080`.
+2. Clone and run the frontend from the repository above, and point it at the backend URL.
+3. Register in the app and start swapping skills.
+
+### Building your own client
+Any client can use this API. Frontend developers should start with [docs/FRONTEND-HANDOFF.md](docs/FRONTEND-HANDOFF.md), which lists every endpoint, payload, enum and the WebSocket chat protocol.
 
 ## Tech Stack
 
@@ -497,6 +513,3 @@ HTTP Status Codes:
 - Payment integration
 - Activity feed (auto-generated: exchanges accepted, sessions completed, ratings received)
 
-## License
-
-This project is for educational purposes.
