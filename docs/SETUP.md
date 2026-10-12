@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-Before starting the SkillSwap application, ensure you have the following installed:
+Before starting the paraspa application, ensure you have the following installed:
 
 ### 1. Java 17+
 ```bash
@@ -51,7 +51,7 @@ psql --version
 psql -U postgres -h localhost
 
 # Create database
-CREATE DATABASE skillswap_db;
+CREATE DATABASE paraspa_db;
 
 # Verify creation
 \l
@@ -64,7 +64,7 @@ CREATE DATABASE skillswap_db;
 
 1. Open pgAdmin (usually at http://localhost:5050)
 2. Right-click "Databases" → Create → Database
-3. Name: `skillswap_db`
+3. Name: `paraspa_db`
 4. Click "Save"
 
 ### Option 3: Let Spring Boot Create It
@@ -81,7 +81,7 @@ Edit `src/main/resources/application.properties`:
 
 ```properties
 # Default configuration (should work on most local setups)
-spring.datasource.url=jdbc:postgresql://localhost:5432/skillswap_db
+spring.datasource.url=jdbc:postgresql://localhost:5432/paraspa_db
 spring.datasource.username=postgres
 spring.datasource.password=postgres
 spring.datasource.driver-class-name=org.postgresql.Driver
@@ -129,11 +129,11 @@ mvn spring-boot:run
 mvn clean package -DskipTests
 
 # Then run
-java -jar target/skillswap-0.0.1-SNAPSHOT.jar
+java -jar target/paraspa-0.0.1-SNAPSHOT.jar
 ```
 
 ### Option 3: IDE Run
-- IntelliJ IDEA: Right-click SkillswapApplication.java → Run
+- IntelliJ IDEA: Right-click paraspaApplication.java → Run
 - Eclipse: Right-click project → Run As → Spring Boot App
 - VS Code: Use Spring Boot Extension
 
@@ -158,7 +158,7 @@ curl -X POST http://localhost:8080/api/auth/register \
 ### 3. Check Logs
 Look for:
 ```
-Started SkillswapApplication in X seconds
+Started paraspaApplication in X seconds
 ```
 
 ## Troubleshooting
@@ -175,13 +175,13 @@ Error: connection refused
 
 ### Issue: Database does not exist
 ```
-Error: FATAL: database "skillswap_db" does not exist
+Error: FATAL: database "paraspa_db" does not exist
 ```
 
 **Solution:**
 ```bash
 # Create the database
-psql -U postgres -h localhost -c "CREATE DATABASE skillswap_db;"
+psql -U postgres -h localhost -c "CREATE DATABASE paraspa_db;"
 ```
 
 ### Issue: Port 8080 already in use
@@ -297,7 +297,7 @@ mvn spring-boot:run
 ### 5. Check Database
 ```bash
 # Connect to database
-psql -U postgres -d skillswap_db
+psql -U postgres -d paraspa_db
 
 # View tables
 \dt

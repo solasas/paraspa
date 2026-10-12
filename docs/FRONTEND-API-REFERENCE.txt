@@ -1,5 +1,5 @@
 ================================================================================
-SKILLSWAP API REFERENCE - FRONTEND GUIDE
+paraspa API REFERENCE - FRONTEND GUIDE
 ================================================================================
 
 BASE URL: http://localhost:8080/api

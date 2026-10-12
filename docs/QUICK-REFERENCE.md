@@ -1,10 +1,10 @@
-# SkillSwap - Quick Reference Card
+# paraspa - Quick Reference Card
 
 ## 🚀 Get Running in 3 Commands
 
 ```bash
 # 1. Create database
-psql -U postgres -c "CREATE DATABASE skillswap_db;"
+psql -U postgres -c "CREATE DATABASE paraspa_db;"
 
 # 2. Build
 mvn clean install -DskipTests
@@ -140,7 +140,7 @@ ratings (id, session_id, rated_by_id, rated_to_id, stars, review, created_at)
 Edit: `src/main/resources/application.properties`
 
 ```properties
-spring.datasource.url=jdbc:postgresql://localhost:5432/skillswap_db
+spring.datasource.url=jdbc:postgresql://localhost:5432/paraspa_db
 spring.datasource.username=postgres
 spring.datasource.password=postgres
 jwt.secret=your-secret-key
@@ -153,7 +153,7 @@ server.port=8080
 | Issue | Solution |
 |-------|----------|
 | IDE shows unresolved symbols | See IDE-SETUP-GUIDE.md |
-| Cannot connect to DB | `psql -U postgres -c "CREATE DATABASE skillswap_db;"` |
+| Cannot connect to DB | `psql -U postgres -c "CREATE DATABASE paraspa_db;"` |
 | Port 8080 in use | Change `server.port` in application.properties |
 | Build fails | `mvn clean install -DskipTests` |
 
@@ -192,8 +192,8 @@ curl -X POST http://localhost:8080/api/exchanges \
 ## 📁 Project Structure
 
 ```
-skillswap/
-├── src/main/java/com/sashank/skillswap/
+paraspa/
+├── src/main/java/com/sashank/paraspa/
 │   ├── controller/         (7 REST controllers)
 │   ├── service/            (8 services)
 │   ├── entity/             (6 entities)

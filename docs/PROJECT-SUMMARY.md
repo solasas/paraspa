@@ -1,8 +1,8 @@
-# SkillSwap - Complete Project Summary
+# paraspa - Complete Project Summary
 
 ## 📦 Project Overview
 
-**SkillSwap** is a complete REST API backend for a community skill exchange platform where people can trade skills for free. Built with Spring Boot 3.2.0, PostgreSQL, and JWT authentication.
+**paraspa** is a complete REST API backend for a community skill exchange platform where people can trade skills for free. Built with Spring Boot 3.2.0, PostgreSQL, and JWT authentication.
 
 ### Tech Stack
 - Java 17
@@ -20,7 +20,7 @@
 
 ### Root Level Files
 ```
-skillswap/
+paraspa/
 ├── pom.xml                          # Maven configuration with all dependencies
 ├── README.md                        # Main documentation
 ├── QUICKSTART.md                    # Quick start guide (5 minutes)
@@ -131,7 +131,7 @@ skillswap/
 - **GlobalExceptionHandler.java** - Centralized error handling
 
 ### Main Application
-- **SkillswapApplication.java** - Spring Boot entry point
+- **paraspaApplication.java** - Spring Boot entry point
 
 ### Resources (`src/main/resources/`)
 - **application.properties** - Application configuration
@@ -307,7 +307,7 @@ Session (1) ─── (M) Rating
 ### Quick Start (5 minutes)
 ```bash
 # Create database
-psql -U postgres -c "CREATE DATABASE skillswap_db;"
+psql -U postgres -c "CREATE DATABASE paraspa_db;"
 
 # Build project
 mvn clean install -DskipTests
@@ -366,14 +366,14 @@ JWT_SECRET=your-secret-key
 JWT_EXPIRATION=86400000
 DB_USERNAME=postgres
 DB_PASSWORD=postgres
-DB_URL=jdbc:postgresql://localhost:5432/skillswap_db
+DB_URL=jdbc:postgresql://localhost:5432/paraspa_db
 SERVER_PORT=8080
 ```
 
 ### Default Configuration
 ```properties
 # Database
-spring.datasource.url=jdbc:postgresql://localhost:5432/skillswap_db
+spring.datasource.url=jdbc:postgresql://localhost:5432/paraspa_db
 spring.datasource.username=postgres
 spring.datasource.password=postgres
 
@@ -386,7 +386,7 @@ server.port=8080
 
 # Logging
 logging.level.root=INFO
-logging.level.com.sashank.skillswap=DEBUG
+logging.level.com.sashank.paraspa=DEBUG
 ```
 
 ---
@@ -466,5 +466,5 @@ Educational Project - Free to use and modify
 
 ---
 
-**SkillSwap is ready to use! Start the application and begin exchanging skills! 🚀**
+**paraspa is ready to use! Start the application and begin exchanging skills! 🚀**
 

@@ -1,8 +1,8 @@
-# SkillSwap - Project Completion Report
+# paraspa - Project Completion Report
 
 ## ✅ Project Status: COMPLETE
 
-The SkillSwap REST API backend has been fully implemented with all required features, endpoints, and functionality.
+The paraspa REST API backend has been fully implemented with all required features, endpoints, and functionality.
 
 ## 📦 Deliverables
 
@@ -124,11 +124,11 @@ Code Generation:  Lombok
 ## 📁 File Structure
 
 ```
-skillswap/
+paraspa/
 ├── pom.xml (with Lombok annotation processor)
 ├── src/main/
-│   ├── java/com/sashank/skillswap/
-│   │   ├── SkillswapApplication.java
+│   ├── java/com/sashank/paraspa/
+│   │   ├── paraspaApplication.java
 │   │   ├── config/SecurityConfig.java
 │   │   ├── controller/ (7 REST controllers)
 │   │   ├── dto/ (22 DTO classes)
@@ -161,7 +161,7 @@ Total: 71 Java classes + configuration files
 
 ```bash
 # 1. Create database
-psql -U postgres -c "CREATE DATABASE skillswap_db;"
+psql -U postgres -c "CREATE DATABASE paraspa_db;"
 
 # 2. Configure application.properties
 # Set database credentials and JWT secret
@@ -331,7 +331,7 @@ The application is ready for:
 
 ## 📋 Notes
 
-1. **IDE Configuration**: .idea/misc.xml and .idea/skillswap.iml created for proper JDK 17 configuration in IntelliJ
+1. **IDE Configuration**: .idea/misc.xml and .idea/paraspa.iml created for proper JDK 17 configuration in IntelliJ
 2. **Maven Compiler**: pom.xml configured with Lombok annotation processor for proper code generation
 3. **JWT Security**: Uses industry-standard jjwt library with HS512 signing
 4. **Database**: PostgreSQL configured for production use
@@ -339,7 +339,7 @@ The application is ready for:
 
 ## 🎉 Conclusion
 
-The SkillSwap REST API backend is fully functional and complete with:
+The paraspa REST API backend is fully functional and complete with:
 - All 22 required endpoints
 - Full security implementation
 - Complete database schema

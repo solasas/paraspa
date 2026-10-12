@@ -1,11 +1,11 @@
-# SkillSwap - Complete File Manifest
+# paraspa - Complete File Manifest
 
-This document lists all files created for the SkillSwap REST API backend project.
+This document lists all files created for the paraspa REST API backend project.
 
 ## 📋 Root Documentation Files
 
 ```
-skillswap/
+paraspa/
 ├── README.md                    # Main documentation with features and API reference
 ├── QUICKSTART.md                # 5-minute quick start guide
 ├── SETUP.md                     # Detailed environment setup instructions
@@ -20,9 +20,9 @@ skillswap/
 
 ## 📁 Java Source Files
 
-### Main Application (`src/main/java/com/sashank/skillswap/`)
+### Main Application (`src/main/java/com/sashank/paraspa/`)
 
-#### 1. SkillswapApplication.java
+#### 1. paraspaApplication.java
 - Spring Boot entry point
 - Auto-configures application
 
@@ -160,10 +160,10 @@ util/
 └── DtoMapper.java               # Entity to DTO mapping
 ```
 
-### Test Files (`src/test/java/com/sashank/skillswap/`)
+### Test Files (`src/test/java/com/sashank/paraspa/`)
 ```
-test/java/com/sashank/skillswap/
-└── SkillswapApplicationTests.java # Spring Boot test class
+test/java/com/sashank/paraspa/
+└── paraspaApplicationTests.java # Spring Boot test class
 ```
 
 ### Resources (`src/main/resources/`)
@@ -218,8 +218,8 @@ src/main/resources/
 ## 🗂️ Package Organization
 
 ```
-com.sashank.skillswap
-├── SkillswapApplication
+com.sashank.paraspa
+├── paraspaApplication
 ├── config/
 │   └── SecurityConfig
 ├── controller/          (7 classes)

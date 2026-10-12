@@ -1,4 +1,4 @@
-# SkillSwap Quick Start Guide
+# paraspa Quick Start Guide
 
 ## 🚀 Get Started in 5 Minutes
 
@@ -22,12 +22,12 @@ psql --version
 # Ubuntu: sudo systemctl start postgresql
 
 # Create database
-psql -U postgres -h localhost -c "CREATE DATABASE skillswap_db;" 2>/dev/null || true
+psql -U postgres -h localhost -c "CREATE DATABASE paraspa_db;" 2>/dev/null || true
 ```
 
 ### Step 3: Build Project (1 minute)
 ```bash
-cd skillswap
+cd paraspa
 mvn clean install -DskipTests
 ```
 
@@ -67,7 +67,7 @@ Expected response:
 ### Load Sample Data
 ```bash
 # Connect to database
-psql -U postgres -d skillswap_db
+psql -U postgres -d paraspa_db
 
 # Copy-paste contents of src/main/resources/init-data.sql
 # Or:
@@ -78,7 +78,7 @@ psql -U postgres -d skillswap_db
 See **API-TESTING.md** for detailed curl examples
 
 ### Explore the Code
-- Start with: **src/main/java/com/sashank/skillswap/SkillswapApplication.java**
+- Start with: **src/main/java/com/sashank/paraspa/paraspaApplication.java**
 - Read: **README.md** for full documentation
 - Check: **PROJECT-STRUCTURE.md** for code organization
 
@@ -103,7 +103,7 @@ POST   /api/sessions/{id}/ratings      # Rate user
 | `Cannot connect to PostgreSQL` | Start PostgreSQL: `brew services start postgresql` |
 | `Port 8080 already in use` | Change port: Edit `application.properties` → `server.port=8081` |
 | `Cannot resolve symbol` (IDE) | Right-click `pom.xml` → Maven → Reload Project |
-| `Database doesn't exist` | Run: `psql -U postgres -c "CREATE DATABASE skillswap_db;"` |
+| `Database doesn't exist` | Run: `psql -U postgres -c "CREATE DATABASE paraspa_db;"` |
 
 ## 📖 Documentation Files
 
@@ -209,7 +209,7 @@ mvn spring-boot:run
 curl http://localhost:8080/api/...
 
 # Terminal 3: Monitor database
-psql -U postgres -d skillswap_db
+psql -U postgres -d paraspa_db
 SELECT * FROM users;
 ```
 
@@ -247,5 +247,5 @@ SELECT * FROM users;
 
 ---
 
-**Enjoy using SkillSwap! Happy skill exchanging! 🎓**
+**Enjoy using paraspa! Happy skill exchanging! 🎓**
 

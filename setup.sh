@@ -1,12 +1,12 @@
 #!/bin/bash
 
-# SkillSwap Setup Script
+# paraspa Setup Script
 # This script helps set up the development environment
 
 set -e
 
 echo "========================================"
-echo "  SkillSwap - Setup Script"
+echo "  paraspa - Setup Script"
 echo "========================================"
 echo ""
 
@@ -42,11 +42,11 @@ echo ""
 
 # Attempt to create database
 if command -v psql &> /dev/null; then
-    echo "Attempting to create database 'skillswap_db'..."
-    psql -U postgres -h localhost -c "CREATE DATABASE skillswap_db;" 2>/dev/null || {
+    echo "Attempting to create database 'paraspa_db'..."
+    psql -U postgres -h localhost -c "CREATE DATABASE paraspa_db;" 2>/dev/null || {
         echo "⚠️  Could not auto-create database"
         echo "You may need to create it manually:"
-        echo "  psql -U postgres -h localhost -c \"CREATE DATABASE skillswap_db;\""
+        echo "  psql -U postgres -h localhost -c \"CREATE DATABASE paraspa_db;\""
     }
 fi
 

@@ -1,10 +1,10 @@
-# SkillSwap - Community Skill Exchange Platform
+# paraspa - Community Skill Exchange Platform
 
 A complete REST API backend built with Spring Boot for a community skill exchange platform where users can trade skills for free.
 
 ## Overview
 
-SkillSwap is a platform that enables users to:
+paraspa is a platform that enables users to:
 - List skills they can teach and skills they want to learn
 - Find matches with other users for mutual skill exchange
 - Schedule sessions for teaching/learning
@@ -24,9 +24,9 @@ SkillSwap is a platform that enables users to:
 ## Project Structure
 
 ```
-skillswap/
-├── src/main/java/com/sashank/skillswap/
-│   ├── SkillswapApplication.java
+paraspa/
+├── src/main/java/com/sashank/paraspa/
+│   ├── paraspaApplication.java
 │   ├── config/
 │   │   └── SecurityConfig.java
 │   ├── controller/
@@ -129,7 +129,7 @@ skillswap/
 Create a PostgreSQL database:
 
 ```sql
-CREATE DATABASE skillswap_db;
+CREATE DATABASE paraspa_db;
 ```
 
 ### 2. Application Configuration
@@ -138,7 +138,7 @@ Edit `src/main/resources/application.properties`:
 
 ```properties
 # Database Configuration
-spring.datasource.url=jdbc:postgresql://localhost:5432/skillswap_db
+spring.datasource.url=jdbc:postgresql://localhost:5432/paraspa_db
 spring.datasource.username=postgres
 spring.datasource.password=postgres
 
@@ -153,7 +153,7 @@ server.port=8080
 ### 3. Build the Project
 
 ```bash
-cd skillswap
+cd paraspa
 mvn clean install -DskipTests
 ```
 
@@ -166,7 +166,7 @@ mvn spring-boot:run
 Or using Java directly:
 
 ```bash
-java -jar target/skillswap-0.0.1-SNAPSHOT.jar
+java -jar target/paraspa-0.0.1-SNAPSHOT.jar
 ```
 
 The API will be available at `http://localhost:8080`
@@ -176,7 +176,7 @@ The API will be available at `http://localhost:8080`
 After the application starts, the database tables will be created automatically. You can optionally load sample data:
 
 ```bash
-psql -U postgres -d skillswap_db -f src/main/resources/init-data.sql
+psql -U postgres -d paraspa_db -f src/main/resources/init-data.sql
 ```
 
 ## API Endpoints

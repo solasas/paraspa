@@ -1,4 +1,4 @@
-# ✅ SkillSwap - Final Verification Checklist
+# ✅ paraspa - Final Verification Checklist
 
 ## Project Completion Verification
 
@@ -99,10 +99,10 @@
 - ✅ DtoMapper.java
 
 #### Application (1)
-- ✅ SkillswapApplication.java
+- ✅ paraspaApplication.java
 
 #### Test (1)
-- ✅ SkillswapApplicationTests.java
+- ✅ paraspaApplicationTests.java
 
 ---
 
@@ -439,7 +439,7 @@
 
 ---
 
-**SkillSwap REST API Backend - Project 100% Complete ✅**
+**paraspa REST API Backend - Project 100% Complete ✅**
 
 **Ready to Use! 🚀**
 

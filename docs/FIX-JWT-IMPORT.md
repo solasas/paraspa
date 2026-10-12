@@ -35,7 +35,7 @@ Maven dependencies have been updated in `pom.xml` but the IDE hasn't refreshed i
 
 ### Option 4: Command Line (All IDEs)
 ```bash
-cd /Users/sashanksolasa/Documents/programming/skillswap
+cd /Users/sashanksolasa/Documents/programming/paraspa
 
 # Clear Maven cache
 rm -rf ~/.m2/repository/io/jsonwebtoken

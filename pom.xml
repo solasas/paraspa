@@ -9,7 +9,7 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.sashank</groupId>
-	<artifactId>skillswap</artifactId>
+	<artifactId>paraspa</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name/>
 	<description/>

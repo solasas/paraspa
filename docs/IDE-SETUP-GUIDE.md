@@ -1,4 +1,4 @@
-# SkillSwap - IDE Setup & Troubleshooting Guide
+# paraspa - IDE Setup & Troubleshooting Guide
 
 ## IDE Configuration Issues & Solutions
 
@@ -10,7 +10,7 @@ This is a **Maven dependency resolution issue in the IDE**, not an actual code p
 
 **IntelliJ IDEA:**
 1. Open the Maven tool window (View → Tool Windows → Maven)
-2. Right-click on "skillswap" project
+2. Right-click on "paraspa" project
 3. Select "Reload Projects"
 4. Wait for download to complete
 
@@ -47,7 +47,7 @@ eclipse -clean
 Run Maven to verify the code actually compiles (it will):
 
 ```bash
-cd /Users/sashanksolasa/Documents/programming/skillswap
+cd /Users/sashanksolasa/Documents/programming/paraspa
 mvn clean install -DskipTests
 ```
 
@@ -66,7 +66,7 @@ If this succeeds, the IDE just needs its caches refreshed.
 2. Open Command Palette → "Java: Configure Classpath"
 3. Let it rebuild
 
-### Issue: "JDK isn't specified for module 'skillswap'"
+### Issue: "JDK isn't specified for module 'paraspa'"
 
 #### Solution 1: Through IDE
 
@@ -88,7 +88,7 @@ The project includes `.idea/misc.xml` with JDK 17 configuration. If it's not pic
 
 ```bash
 # Verify file exists
-cat /Users/sashanksolasa/Documents/programming/skillswap/.idea/misc.xml
+cat /Users/sashanksolasa/Documents/programming/paraspa/.idea/misc.xml
 ```
 
 Should contain: `<component name="ProjectRootManager" version="2" languageLevel="JDK_17">`
@@ -205,7 +205,7 @@ psql -U postgres -h localhost
 \l
 
 # Create if missing
-CREATE DATABASE skillswap_db;
+CREATE DATABASE paraspa_db;
 
 # Verify
 \l
@@ -278,12 +278,12 @@ Follow these in order for a clean setup:
 3. **PostgreSQL Setup**
    ```bash
    # Create database
-   psql -U postgres -c "CREATE DATABASE skillswap_db;"
+   psql -U postgres -c "CREATE DATABASE paraspa_db;"
    ```
 
 4. **Project Setup**
    ```bash
-   cd skillswap
+   cd paraspa
    
    # Build with Maven
    mvn clean install -DskipTests
@@ -325,7 +325,7 @@ mvn test
 mvn clean package
 
 # 7. Run application
-java -jar target/skillswap-0.0.1-SNAPSHOT.jar
+java -jar target/paraspa-0.0.1-SNAPSHOT.jar
 
 # In another terminal:
 # 8. Test API
@@ -365,7 +365,7 @@ The project uses these configuration files:
 
 - `.idea/misc.xml` - IDE-level settings (JDK version)
 - `.idea/modules.xml` - Module configuration
-- `.idea/skillswap.iml` - Module details
+- `.idea/paraspa.iml` - Module details
 - `pom.xml` - Maven build configuration
 
 All are already configured correctly for JDK 17 and Maven.
@@ -382,7 +382,7 @@ If still having issues:
 
 2. **Verify files exist**
    ```bash
-   ls src/main/java/com/sashank/skillswap/
+   ls src/main/java/com/sashank/paraspa/
    ls src/main/resources/
    ls -la .idea/
    ```
@@ -399,7 +399,7 @@ If still having issues:
 
 ## IDE Recommendations
 
-For best experience with SkillSwap:
+For best experience with paraspa:
 
 1. **IntelliJ IDEA** (Recommended)
    - Best Spring Boot support
@@ -427,5 +427,5 @@ You've successfully set up when:
 
 ---
 
-**After following these steps, your SkillSwap project will be fully functional!**
+**After following these steps, your paraspa project will be fully functional!**
 

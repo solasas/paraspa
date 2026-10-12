@@ -3,12 +3,12 @@
 ## Complete Directory Tree
 
 ```
-skillswap/
+paraspa/
 ├── src/
 │   ├── main/
 │   │   ├── java/
-│   │   │   └── com/sashank/skillswap/
-│   │   │       ├── SkillswapApplication.java          # Main Spring Boot application
+│   │   │   └── com/sashank/paraspa/
+│   │   │       ├── paraspaApplication.java          # Main Spring Boot application
 │   │   │       ├── config/
 │   │   │       │   └── SecurityConfig.java            # Spring Security configuration
 │   │   │       ├── controller/                        # REST API endpoints
@@ -97,8 +97,8 @@ skillswap/
 │   │       └── init-data.sql                          # Sample data script
 │   └── test/
 │       └── java/
-│           └── com/sashank/skillswap/
-│               └── SkillswapApplicationTests.java
+│           └── com/sashank/paraspa/
+│               └── paraspaApplicationTests.java
 ├── pom.xml                                            # Maven configuration
 ├── README.md                                          # Main documentation
 ├── SETUP.md                                           # Environment setup guide

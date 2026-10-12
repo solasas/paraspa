@@ -1,8 +1,8 @@
-# 🎉 SkillSwap Project - COMPLETE DELIVERY SUMMARY
+# 🎉 paraspa Project - COMPLETE DELIVERY SUMMARY
 
 ## Project Delivery Complete ✅
 
-A **complete, production-ready REST API backend** for the **SkillSwap Community Skill Exchange Platform** has been successfully delivered.
+A **complete, production-ready REST API backend** for the **paraspa Community Skill Exchange Platform** has been successfully delivered.
 
 ---
 
@@ -75,10 +75,10 @@ psql --version      # Need PostgreSQL 12+
 ### Setup
 ```bash
 # Create database
-psql -U postgres -c "CREATE DATABASE skillswap_db;"
+psql -U postgres -c "CREATE DATABASE paraspa_db;"
 
 # Build project
-cd skillswap
+cd paraspa
 mvn clean install -DskipTests
 
 # Run application
@@ -401,7 +401,7 @@ OVERALL STATUS:          ✅ COMPLETE
 
 ## 🚀 Ready to Use!
 
-The SkillSwap REST API backend is:
+The paraspa REST API backend is:
 - ✅ **Complete** - All features implemented
 - ✅ **Tested** - All endpoints working
 - ✅ **Documented** - Comprehensive docs
@@ -415,7 +415,7 @@ The SkillSwap REST API backend is:
 
 ## 📝 Project Information
 
-- **Name**: SkillSwap - Community Skill Exchange Platform
+- **Name**: paraspa - Community Skill Exchange Platform
 - **Type**: REST API Backend
 - **Framework**: Spring Boot 3.2.0
 - **Status**: ✅ Complete and Production-Ready
@@ -425,7 +425,7 @@ The SkillSwap REST API backend is:
 
 ---
 
-**🎊 CONGRATULATIONS! Your SkillSwap REST API is ready! 🎊**
+**🎊 CONGRATULATIONS! Your paraspa REST API is ready! 🎊**
 
 **Happy coding! 🚀**
 

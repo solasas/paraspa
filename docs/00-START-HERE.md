@@ -1,8 +1,8 @@
-# ✅ SkillSwap - START HERE
+# ✅ paraspa - START HERE
 
 ## 🎯 You Have a Complete REST API - Ready to Run!
 
-Your SkillSwap platform is **fully built** with 22 REST endpoints, database schema, JWT security, and everything else needed.
+Your paraspa platform is **fully built** with 22 REST endpoints, database schema, JWT security, and everything else needed.
 
 ---
 
@@ -10,12 +10,12 @@ Your SkillSwap platform is **fully built** with 22 REST endpoints, database sche
 
 ### Step 1: Create Database
 ```bash
-psql -U postgres -c "CREATE DATABASE skillswap_db;"
+psql -U postgres -c "CREATE DATABASE paraspa_db;"
 ```
 
 ### Step 2: Build Project
 ```bash
-cd /Users/sashanksolasa/Documents/programming/skillswap
+cd /Users/sashanksolasa/Documents/programming/paraspa
 mvn clean install -DskipTests
 ```
 
@@ -94,7 +94,7 @@ For all 22 endpoints, see **QUICK-REFERENCE.md**
 All settings in: `src/main/resources/application.properties`
 
 **Default settings:**
-- Database: `skillswap_db` on localhost:5432
+- Database: `paraspa_db` on localhost:5432
 - Server: Port 8080
 - JWT: 24-hour token expiration
 - Username: `postgres`
@@ -167,7 +167,7 @@ Sample data
 
 After setup, you should have:
 
-- ✅ Database created (`skillswap_db`)
+- ✅ Database created (`paraspa_db`)
 - ✅ Maven build completed ("BUILD SUCCESS")
 - ✅ Application running on port 8080
 - ✅ API responds to requests
@@ -266,7 +266,7 @@ Your complete REST API backend is ready to use.
 ```bash
 # Copy-paste these 3 commands:
 
-psql -U postgres -c "CREATE DATABASE skillswap_db;"
+psql -U postgres -c "CREATE DATABASE paraspa_db;"
 
 mvn clean install -DskipTests
 

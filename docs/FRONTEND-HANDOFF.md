@@ -1,13 +1,13 @@
-# SkillSwap — Frontend Handoff
+# paraspa — Frontend Handoff
 
 Everything the frontend needs: features, REST endpoints, WebSocket chat, enums, payloads, and gotchas.
-Generated from the code on `main` (commit `3e0afab`). Source of truth: `src/main/java/com/sashank/skillswap/controller/`.
+Generated from the code on `main` (commit `3e0afab`). Source of truth: `src/main/java/com/sashank/paraspa/controller/`.
 
 ---
 
 ## 1. What the app does
 
-SkillSwap lets people trade skills: "I teach guitar, I want to learn Python."
+paraspa lets people trade skills: "I teach guitar, I want to learn Python."
 
 | # | Feature | Summary |
 |---|---------|---------|

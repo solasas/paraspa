@@ -1,4 +1,4 @@
-# SkillSwap - Community Skill Exchange Platform
+# paraspa - Community Skill Exchange Platform
 
 A complete REST API backend for a community skill exchange platform built with Spring Boot 3.2.0 and PostgreSQL.
 
@@ -10,9 +10,11 @@ A complete REST API backend for a community skill exchange platform built with S
 | **Backend** (this repo) | [solasas/skillswap](https://github.com/solasas/skillswap) | Spring Boot API, database, authentication, real-time chat |
 | **Frontend / mobile app** | [solasas/skillswap-mobile-app](https://github.com/solasas/skillswap-mobile-app) | The app users install and use; calls this API |
 
+> The project is named **paraspa**. The GitHub repository names above still use the earlier `skillswap` name.
+
 ## Features
 
-SkillSwap lets people trade skills ("I teach guitar, I want to learn Python"). The platform covers the whole journey: sign up, list skills, find a partner, agree on a swap, schedule and run sessions, chat, and rate each other.
+paraspa lets people trade skills ("I teach guitar, I want to learn Python"). The platform covers the whole journey: sign up, list skills, find a partner, agree on a swap, schedule and run sessions, chat, and rate each other.
 
 ### Accounts & profile
 - **Registration & login**: email + password, BCrypt-hashed, returns a JWT (valid 24 hours, configurable)
@@ -94,7 +96,7 @@ Any client can use this API. Frontend developers should start with [docs/FRONTEN
 Defaults (override with the environment variables shown):
 
 ```properties
-Database: skillswap_db     # DB_NAME
+Database: paraspa_db     # DB_NAME
 Username: postgres         # DB_USER
 Password: password         # DB_PASSWORD
 Host:     localhost        # DB_HOST
@@ -103,9 +105,17 @@ Port:     5432             # DB_PORT
 
 Tables are created automatically on startup (`spring.jpa.hibernate.ddl-auto=update`).
 
+> **Upgrading from the earlier `skillswap` version?** The default database was renamed from `skillswap_db` to `paraspa_db`. To keep your data, rename it (stop the app first):
+>
+> ```sql
+> ALTER DATABASE skillswap_db RENAME TO paraspa_db;
+> ```
+>
+> With Docker Compose, run the same statement through `docker compose exec postgres psql -U postgres`. Otherwise create a new empty `paraspa_db` (Docker Compose does this automatically on a fresh volume; for manual setups see step 1 below).
+
 ## Architecture
 
-SkillSwap is a layered Spring Boot monolith exposing a REST API and a WebSocket (STOMP) channel, backed by a single PostgreSQL database. The mobile app (and any other client) talks only to these two interfaces.
+paraspa is a layered Spring Boot monolith exposing a REST API and a WebSocket (STOMP) channel, backed by a single PostgreSQL database. The mobile app (and any other client) talks only to these two interfaces.
 
 ```
         Mobile app / web client
@@ -195,7 +205,7 @@ Register -> add skills + availability -> find matches / search
 ## Project Structure
 
 ```
-com.sashank.skillswap
+com.sashank.paraspa
 ├── config/                 # Spring configuration classes
 ├── controller/            # REST API endpoints
 ├── dto/
@@ -366,7 +376,7 @@ The API is available at `http://localhost:8080` and PostgreSQL is exposed on hos
 ### 1. Create PostgreSQL Database
 
 ```sql
-CREATE DATABASE skillswap_db;
+CREATE DATABASE paraspa_db;
 ```
 
 ### 2. Install Dependencies
@@ -394,7 +404,7 @@ Edit `src/main/resources/application.properties` to customize:
 
 ```properties
 # Database
-spring.datasource.url=jdbc:postgresql://localhost:5432/skillswap_db
+spring.datasource.url=jdbc:postgresql://localhost:5432/paraspa_db
 spring.datasource.username=postgres
 spring.datasource.password=password
 

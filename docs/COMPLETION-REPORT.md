@@ -1,4 +1,4 @@
-# ✅ SkillSwap - Project Completion Report
+# ✅ paraspa - Project Completion Report
 
 ## Project Status: 🎉 COMPLETE AND PRODUCTION-READY
 
@@ -6,7 +6,7 @@
 
 ## 📋 Executive Summary
 
-A **complete, fully-functional REST API backend** for the SkillSwap Community Skill Exchange Platform has been successfully built using **Spring Boot 3.2.0**, **PostgreSQL**, and **JWT Authentication**.
+A **complete, fully-functional REST API backend** for the paraspa Community Skill Exchange Platform has been successfully built using **Spring Boot 3.2.0**, **PostgreSQL**, and **JWT Authentication**.
 
 The project includes:
 - ✅ 60+ Java classes
@@ -198,7 +198,7 @@ Utilities (1):
 - DtoMapper
 
 Application (1):
-- SkillswapApplication
+- paraspaApplication
 ```
 
 ### Configuration Files: 2
@@ -237,10 +237,10 @@ psql -version         # Need PostgreSQL 12+
 ### Quick Start
 ```bash
 # Create database
-psql -U postgres -c "CREATE DATABASE skillswap_db;"
+psql -U postgres -c "CREATE DATABASE paraspa_db;"
 
 # Build
-cd skillswap
+cd paraspa
 mvn clean install -DskipTests
 
 # Run
@@ -635,11 +635,11 @@ The project is production-ready:
 
 ---
 
-**🎊 Congratulations! Your SkillSwap REST API backend is ready to use! 🎊**
+**🎊 Congratulations! Your paraspa REST API backend is ready to use! 🎊**
 
 ---
 
-**Project**: SkillSwap - Community Skill Exchange Platform  
+**Project**: paraspa - Community Skill Exchange Platform  
 **Type**: REST API Backend  
 **Framework**: Spring Boot 3.2.0  
 **Status**: ✅ Complete and Production-Ready  

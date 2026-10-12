@@ -1,6 +1,6 @@
-# SkillSwap Documentation Index
+# paraspa Documentation Index
 
-Welcome to SkillSwap! This is your guide to navigating the complete project documentation.
+Welcome to paraspa! This is your guide to navigating the complete project documentation.
 
 ## 🚀 Where to Start?
 
@@ -84,10 +84,10 @@ Choose your path based on what you want to do:
 ### Build and Run
 ```bash
 # Clone or navigate to project
-cd skillswap
+cd paraspa
 
 # Create database
-psql -U postgres -c "CREATE DATABASE skillswap_db;"
+psql -U postgres -c "CREATE DATABASE paraspa_db;"
 
 # Build
 mvn clean install -DskipTests
@@ -118,7 +118,7 @@ See [SETUP.md](SETUP.md) for common issues and solutions.
 ## 📁 Project Structure Quick Reference
 
 ```
-skillswap/
+paraspa/
 ├── 📄 README.md                 # Main documentation
 ├── 📄 QUICKSTART.md             # Quick start (you are here)
 ├── 📄 SETUP.md                  # Environment setup
@@ -130,8 +130,8 @@ skillswap/
 ├── pom.xml                      # Maven configuration
 ├── setup.sh                     # Setup script
 └── src/
-    ├── main/java/com/sashank/skillswap/
-    │   ├── SkillswapApplication.java
+    ├── main/java/com/sashank/paraspa/
+    │   ├── paraspaApplication.java
     │   ├── config/              # Security config
     │   ├── controller/          # 7 REST controllers
     │   ├── dto/                 # 18 DTOs
@@ -297,6 +297,6 @@ The project is fully documented and ready to use. Choose your starting point abo
 ---
 
 **Last Updated**: April 5, 2026  
-**Project**: SkillSwap - Community Skill Exchange Platform  
+**Project**: paraspa - Community Skill Exchange Platform  
 **Status**: ✅ Complete and Ready to Use
 

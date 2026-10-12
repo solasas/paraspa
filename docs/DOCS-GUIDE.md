@@ -1,4 +1,4 @@
-# 📄 SkillSwap Documentation - Quick Reference
+# 📄 paraspa Documentation - Quick Reference
 
 ## 🎯 WHERE TO START?
 

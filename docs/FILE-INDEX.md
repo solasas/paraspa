@@ -1,4 +1,4 @@
-# SkillSwap - Complete File Index
+# paraspa - Complete File Index
 
 ## 📋 Documentation Files (Read in This Order)
 
@@ -54,8 +54,8 @@
 
 ### Main Application
 ```
-src/main/java/com/sashank/skillswap/
-├── SkillswapApplication.java           (Entry point)
+src/main/java/com/sashank/paraspa/
+├── paraspaApplication.java           (Entry point)
 ├── config/
 │   └── SecurityConfig.java             (Spring Security configuration)
 ├── controller/                         (7 REST controllers)
@@ -153,7 +153,7 @@ src/main/resources/
 .idea/
 ├── misc.xml                            (JDK 17 configuration)
 ├── modules.xml                         (Module setup)
-└── skillswap.iml                       (Module details)
+└── paraspa.iml                       (Module details)
 ```
 
 ### Build Configuration
@@ -209,7 +209,7 @@ pom.xml                                 (Maven configuration with all dependenci
 → Check `FINAL-COMPLETION-REPORT.md`
 
 **Understand the code**
-→ Look at `src/main/java/com/sashank/skillswap/`
+→ Look at `src/main/java/com/sashank/paraspa/`
 
 **Load sample data**
 → Run `src/main/resources/init-data.sql`
@@ -222,7 +222,7 @@ pom.xml                                 (Maven configuration with all dependenci
 ## ✅ Verification Checklist
 
 After setup, verify:
-- [ ] Database created (`skillswap_db`)
+- [ ] Database created (`paraspa_db`)
 - [ ] Maven build successful
 - [ ] Application starts without errors
 - [ ] API responds to requests

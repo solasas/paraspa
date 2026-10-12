@@ -1,4 +1,4 @@
--- SkillSwap Database Initialization Script
+-- paraspa Database Initialization Script
 -- Run this script after the application creates the tables
 
 -- Insert sample skills

@@ -1,4 +1,4 @@
-# SkillSwap API Testing Guide
+# paraspa API Testing Guide
 
 This guide provides curl commands to test all API endpoints.
 
