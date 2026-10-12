@@ -84,6 +84,10 @@ public class UserSearchServiceImpl implements UserSearchService {
     private UserResponse toUserResponseWithRatings(User user) {
         Double avgRating = ratingRepository.getAverageRatingByUserId(user.getId());
         Long totalRatings = ratingRepository.countByRatedToId(user.getId());
-        return dtoMapper.toUserResponseWithRatings(user, avgRating != null ? avgRating : 0.0, totalRatings);
+        UserResponse response = dtoMapper.toUserResponseWithRatings(user, avgRating != null ? avgRating : 0.0, totalRatings);
+        if (response != null) {
+            response.setEmail(null);
+        }
+        return response;
     }
 }

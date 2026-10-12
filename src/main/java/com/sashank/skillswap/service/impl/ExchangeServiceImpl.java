@@ -98,9 +98,14 @@ public class ExchangeServiceImpl implements ExchangeService {
     }
 
     @Override
-    public ExchangeResponse getExchangeById(Long exchangeId) {
+    public ExchangeResponse getExchangeById(Long userId, Long exchangeId) {
         SkillExchange exchange = exchangeRepository.findById(exchangeId)
                 .orElseThrow(() -> new ResourceNotFoundException("Exchange not found"));
+
+        if (!exchange.getRequester().getId().equals(userId) && !exchange.getReceiver().getId().equals(userId)) {
+            throw new ResourceNotFoundException("Exchange not found");
+        }
+
         return dtoMapper.toExchangeResponse(exchange);
     }
 
@@ -147,6 +152,10 @@ public class ExchangeServiceImpl implements ExchangeService {
 
         if (!exchange.getRequester().getId().equals(userId) && !exchange.getReceiver().getId().equals(userId)) {
             throw new BadRequestException("Only exchange participants can complete exchange");
+        }
+
+        if (!exchange.getStatus().equals(ExchangeStatus.ACCEPTED)) {
+            throw new BadRequestException("Only accepted exchanges can be completed");
         }
 
         exchange.setStatus(ExchangeStatus.COMPLETED);

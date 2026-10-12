@@ -5,6 +5,7 @@ import com.sashank.skillswap.dto.response.UserSkillResponse;
 import com.sashank.skillswap.entity.Skill;
 import com.sashank.skillswap.entity.User;
 import com.sashank.skillswap.entity.UserSkill;
+import com.sashank.skillswap.exception.AlreadyExistsException;
 import com.sashank.skillswap.exception.ResourceNotFoundException;
 import com.sashank.skillswap.repository.SkillRepository;
 import com.sashank.skillswap.repository.UserRepository;
@@ -37,6 +38,10 @@ public class UserSkillServiceImpl implements UserSkillService {
 
         Skill skill = skillRepository.findById(request.getSkillId())
                 .orElseThrow(() -> new ResourceNotFoundException("Skill not found"));
+
+        if (userSkillRepository.existsByUserIdAndSkillIdAndType(userId, skill.getId(), request.getType())) {
+            throw new AlreadyExistsException("Skill already added to your " + request.getType().name().toLowerCase() + " list");
+        }
 
         UserSkill userSkill = UserSkill.builder()
                 .user(user)

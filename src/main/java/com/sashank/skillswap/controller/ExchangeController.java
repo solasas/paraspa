@@ -47,8 +47,10 @@ public class ExchangeController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ExchangeResponse> getExchangeById(@PathVariable Long id) {
-        ExchangeResponse exchange = exchangeService.getExchangeById(id);
+    public ResponseEntity<ExchangeResponse> getExchangeById(
+            @RequestAttribute("userId") Long userId,
+            @PathVariable Long id) {
+        ExchangeResponse exchange = exchangeService.getExchangeById(userId, id);
         return ResponseEntity.ok(exchange);
     }
 

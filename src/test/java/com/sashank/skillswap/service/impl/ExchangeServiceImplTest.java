@@ -6,11 +6,14 @@ import com.sashank.skillswap.entity.Skill;
 import com.sashank.skillswap.entity.SkillExchange;
 import com.sashank.skillswap.entity.User;
 import com.sashank.skillswap.enums.ExchangeStatus;
+import com.sashank.skillswap.enums.SkillType;
 import com.sashank.skillswap.exception.BadRequestException;
 import com.sashank.skillswap.repository.SkillExchangeRepository;
 import com.sashank.skillswap.repository.SkillRepository;
+import com.sashank.skillswap.repository.UserSkillRepository;
 import com.sashank.skillswap.repository.UserRepository;
 import com.sashank.skillswap.util.DtoMapper;
+import com.sashank.skillswap.exception.ResourceNotFoundException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -39,6 +42,9 @@ class ExchangeServiceImplTest {
 
     @Mock
     private SkillRepository skillRepository;
+
+    @Mock
+    private UserSkillRepository userSkillRepository;
 
     @Mock
     private DtoMapper dtoMapper;
@@ -88,6 +94,8 @@ class ExchangeServiceImplTest {
         when(userRepository.findById(receiverId)).thenReturn(Optional.of(receiver));
         when(skillRepository.findById(10L)).thenReturn(Optional.of(offeredSkill));
         when(skillRepository.findById(20L)).thenReturn(Optional.of(wantedSkill));
+        when(userSkillRepository.existsByUserIdAndSkillIdAndType(requesterId, 10L, SkillType.TEACH)).thenReturn(true);
+        when(userSkillRepository.existsByUserIdAndSkillIdAndType(receiverId, 20L, SkillType.TEACH)).thenReturn(true);
         when(exchangeRepository.save(any(SkillExchange.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(dtoMapper.toExchangeResponse(any(SkillExchange.class))).thenReturn(ExchangeResponse.builder().build());
 
@@ -164,6 +172,60 @@ class ExchangeServiceImplTest {
         assertThatThrownBy(() -> exchangeService.rejectExchange(userId, exchangeId))
                 .isInstanceOf(BadRequestException.class)
                 .hasMessage("Exchange is not in pending status");
+
+        verify(exchangeRepository, never()).save(any());
+    }
+
+    @Test
+    void getExchangeById_shouldThrowNotFound_whenUserIsNotParticipant() {
+        Long exchangeId = 100L;
+        SkillExchange exchange = SkillExchange.builder()
+                .id(exchangeId)
+                .requester(User.builder().id(1L).build())
+                .receiver(User.builder().id(2L).build())
+                .status(ExchangeStatus.PENDING)
+                .build();
+
+        when(exchangeRepository.findById(exchangeId)).thenReturn(Optional.of(exchange));
+
+        assertThatThrownBy(() -> exchangeService.getExchangeById(999L, exchangeId))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Exchange not found");
+    }
+
+    @Test
+    void getExchangeById_shouldReturnExchange_whenUserIsParticipant() {
+        Long exchangeId = 100L;
+        SkillExchange exchange = SkillExchange.builder()
+                .id(exchangeId)
+                .requester(User.builder().id(1L).build())
+                .receiver(User.builder().id(2L).build())
+                .status(ExchangeStatus.PENDING)
+                .build();
+        ExchangeResponse expected = ExchangeResponse.builder().id(exchangeId).build();
+
+        when(exchangeRepository.findById(exchangeId)).thenReturn(Optional.of(exchange));
+        when(dtoMapper.toExchangeResponse(exchange)).thenReturn(expected);
+
+        assertThat(exchangeService.getExchangeById(2L, exchangeId)).isSameAs(expected);
+    }
+
+    @Test
+    void completeExchange_shouldThrowBadRequestException_whenStatusIsNotAccepted() {
+        Long userId = 1L;
+        Long exchangeId = 100L;
+        SkillExchange exchange = SkillExchange.builder()
+                .id(exchangeId)
+                .requester(User.builder().id(userId).build())
+                .receiver(User.builder().id(2L).build())
+                .status(ExchangeStatus.PENDING)
+                .build();
+
+        when(exchangeRepository.findById(exchangeId)).thenReturn(Optional.of(exchange));
+
+        assertThatThrownBy(() -> exchangeService.completeExchange(userId, exchangeId))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Only accepted exchanges can be completed");
 
         verify(exchangeRepository, never()).save(any());
     }

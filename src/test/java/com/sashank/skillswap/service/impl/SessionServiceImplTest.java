@@ -11,6 +11,8 @@ import com.sashank.skillswap.repository.SessionRepository;
 import com.sashank.skillswap.repository.SkillExchangeRepository;
 import com.sashank.skillswap.repository.UserRepository;
 import com.sashank.skillswap.util.DtoMapper;
+import com.sashank.skillswap.exception.ResourceNotFoundException;
+import com.sashank.skillswap.enums.ExchangeStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -124,5 +126,74 @@ class SessionServiceImplTest {
         verify(sessionRepository).save(sessionCaptor.capture());
 
         assertThat(sessionCaptor.getValue().getStatus()).isEqualTo(SessionStatus.CANCELLED);
+    }
+
+    private SkillExchange exchangeOf(Long requesterId, Long receiverId) {
+        return SkillExchange.builder()
+                .id(100L)
+                .requester(User.builder().id(requesterId).build())
+                .receiver(User.builder().id(receiverId).build())
+                .status(ExchangeStatus.ACCEPTED)
+                .build();
+    }
+
+    @Test
+    void getSessionById_shouldThrowNotFound_whenUserIsNotParticipant() {
+        Session session = Session.builder()
+                .id(200L)
+                .exchange(exchangeOf(1L, 2L))
+                .status(SessionStatus.SCHEDULED)
+                .build();
+
+        when(sessionRepository.findById(200L)).thenReturn(Optional.of(session));
+
+        assertThatThrownBy(() -> sessionService.getSessionById(999L, 200L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Session not found");
+    }
+
+    @Test
+    void getSessionsByExchange_shouldThrowNotFound_whenUserIsNotParticipant() {
+        when(exchangeRepository.findById(100L)).thenReturn(Optional.of(exchangeOf(1L, 2L)));
+
+        assertThatThrownBy(() -> sessionService.getSessionsByExchange(999L, 100L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Exchange not found");
+
+        verify(sessionRepository, never()).findByExchangeId(any());
+    }
+
+    @Test
+    void completeSession_shouldThrowBadRequestException_whenSessionIsNotScheduled() {
+        Session session = Session.builder()
+                .id(200L)
+                .exchange(exchangeOf(1L, 2L))
+                .status(SessionStatus.CANCELLED)
+                .build();
+
+        when(sessionRepository.findById(200L)).thenReturn(Optional.of(session));
+
+        assertThatThrownBy(() -> sessionService.completeSession(1L, 200L))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Only scheduled sessions can be completed");
+
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test
+    void cancelSession_shouldThrowBadRequestException_whenSessionIsNotScheduled() {
+        Session session = Session.builder()
+                .id(200L)
+                .scheduledBy(User.builder().id(1L).build())
+                .status(SessionStatus.COMPLETED)
+                .build();
+
+        when(sessionRepository.findById(200L)).thenReturn(Optional.of(session));
+
+        assertThatThrownBy(() -> sessionService.cancelSession(1L, 200L))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Only scheduled sessions can be cancelled");
+
+        verify(sessionRepository, never()).save(any());
     }
 }

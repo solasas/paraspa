@@ -157,4 +157,20 @@ class MatchServiceImplTest {
 
         assertThat(matches).isEmpty();
     }
+
+    @Test
+    void checkMatch_shouldNotExposeOtherUsersEmail() {
+        User other = User.builder().id(2L).build();
+
+        when(userRepository.findById(2L)).thenReturn(java.util.Optional.of(other));
+        when(userSkillRepository.findByUserIdAndType(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(java.util.List.of());
+        when(dtoMapper.toUserResponse(other))
+                .thenReturn(com.sashank.skillswap.dto.response.UserResponse.builder().id(2L).email("other@example.com").build());
+
+        com.sashank.skillswap.dto.response.MatchResponse match = matchService.checkMatch(1L, 2L);
+
+        org.assertj.core.api.Assertions.assertThat(match.getUser().getId()).isEqualTo(2L);
+        org.assertj.core.api.Assertions.assertThat(match.getUser().getEmail()).isNull();
+    }
 }

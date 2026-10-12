@@ -2,6 +2,7 @@ package com.sashank.skillswap.service.impl;
 
 import com.sashank.skillswap.dto.response.MatchResponse;
 import com.sashank.skillswap.dto.response.SkillResponse;
+import com.sashank.skillswap.dto.response.UserResponse;
 import com.sashank.skillswap.entity.Skill;
 import com.sashank.skillswap.entity.User;
 import com.sashank.skillswap.entity.UserSkill;
@@ -81,6 +82,13 @@ public class MatchServiceImpl implements MatchService {
         return buildMatchResponse(otherUser, myLearnSkillIds, myTeachSkillIds);
     }
 
+    private UserResponse withoutEmail(UserResponse user) {
+        if (user != null) {
+            user.setEmail(null);
+        }
+        return user;
+    }
+
     private MatchResponse buildMatchResponse(User otherUser, Set<Long> myLearnSkillIds, Set<Long> myTeachSkillIds) {
         List<UserSkill> theirTeachSkills = userSkillRepository.findByUserIdAndType(otherUser.getId(), SkillType.TEACH);
         List<UserSkill> theirLearnSkills = userSkillRepository.findByUserIdAndType(otherUser.getId(), SkillType.LEARN);
@@ -98,7 +106,7 @@ public class MatchServiceImpl implements MatchService {
         boolean isMutual = !theyCanTeachMe.isEmpty() && !iCanTeachThem.isEmpty();
 
         return MatchResponse.builder()
-                .user(dtoMapper.toUserResponse(otherUser))
+                .user(withoutEmail(dtoMapper.toUserResponse(otherUser)))
                 .theyCanTeachMe(theyCanTeachMe)
                 .iCanTeachThem(iCanTeachThem)
                 .isMutual(isMutual)

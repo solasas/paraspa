@@ -34,8 +34,9 @@ public class SessionController {
 
     @GetMapping("/exchanges/{exchangeId}/sessions")
     public ResponseEntity<List<SessionResponse>> getSessionsByExchange(
+            @RequestAttribute("userId") Long userId,
             @PathVariable Long exchangeId) {
-        List<SessionResponse> sessions = sessionService.getSessionsByExchange(exchangeId);
+        List<SessionResponse> sessions = sessionService.getSessionsByExchange(userId, exchangeId);
         return ResponseEntity.ok(sessions);
     }
 
@@ -47,8 +48,10 @@ public class SessionController {
     }
 
     @GetMapping("/sessions/{id}")
-    public ResponseEntity<SessionResponse> getSessionById(@PathVariable Long id) {
-        SessionResponse session = sessionService.getSessionById(id);
+    public ResponseEntity<SessionResponse> getSessionById(
+            @RequestAttribute("userId") Long userId,
+            @PathVariable Long id) {
+        SessionResponse session = sessionService.getSessionById(userId, id);
         return ResponseEntity.ok(session);
     }
 
@@ -78,8 +81,10 @@ public class SessionController {
     }
 
     @GetMapping("/sessions/{id}/reschedule-requests")
-    public ResponseEntity<List<RescheduleRequestResponse>> getRescheduleRequests(@PathVariable Long id) {
-        List<RescheduleRequestResponse> requests = rescheduleService.getRescheduleRequests(id);
+    public ResponseEntity<List<RescheduleRequestResponse>> getRescheduleRequests(
+            @RequestAttribute("userId") Long userId,
+            @PathVariable Long id) {
+        List<RescheduleRequestResponse> requests = rescheduleService.getRescheduleRequests(userId, id);
         return ResponseEntity.ok(requests);
     }
 

@@ -9,7 +9,7 @@ public interface ExchangeService {
     List<ExchangeResponse> getMyExchanges(Long userId);
     List<ExchangeResponse> getSentExchanges(Long userId);
     List<ExchangeResponse> getReceivedExchanges(Long userId);
-    ExchangeResponse getExchangeById(Long exchangeId);
+    ExchangeResponse getExchangeById(Long userId, Long exchangeId);
     ExchangeResponse acceptExchange(Long userId, Long exchangeId);
     ExchangeResponse rejectExchange(Long userId, Long exchangeId);
     ExchangeResponse completeExchange(Long userId, Long exchangeId);

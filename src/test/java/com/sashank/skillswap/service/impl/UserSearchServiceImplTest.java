@@ -154,4 +154,20 @@ class UserSearchServiceImplTest {
         assertThat(results).hasSize(1);
         assertThat(results.get(0).getId()).isEqualTo(2L);
     }
+
+    @Test
+    void searchUsers_shouldNotExposeEmail() {
+        User otherUser = User.builder().id(2L).build();
+
+        when(userRepository.findAll()).thenReturn(List.of(otherUser));
+        when(ratingRepository.getAverageRatingByUserId(anyLong())).thenReturn(null);
+        when(ratingRepository.countByRatedToId(anyLong())).thenReturn(0L);
+        when(dtoMapper.toUserResponseWithRatings(otherUser, 0.0, 0L))
+                .thenReturn(UserResponse.builder().id(2L).email("other@example.com").averageRating(0.0).build());
+
+        List<UserResponse> results = userSearchService.searchUsers(1L, null, null, null, null, null);
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).getEmail()).isNull();
+    }
 }

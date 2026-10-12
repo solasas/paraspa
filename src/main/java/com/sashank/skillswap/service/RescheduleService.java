@@ -7,7 +7,7 @@ import java.util.List;
 
 public interface RescheduleService {
     RescheduleRequestResponse proposeReschedule(Long userId, Long sessionId, CreateRescheduleRequest request);
-    List<RescheduleRequestResponse> getRescheduleRequests(Long sessionId);
+    List<RescheduleRequestResponse> getRescheduleRequests(Long userId, Long sessionId);
     SessionResponse acceptReschedule(Long userId, Long sessionId, Long requestId);
     RescheduleRequestResponse rejectReschedule(Long userId, Long sessionId, Long requestId);
 }

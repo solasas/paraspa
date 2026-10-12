@@ -14,6 +14,7 @@ import com.sashank.skillswap.repository.RescheduleRequestRepository;
 import com.sashank.skillswap.repository.SessionRepository;
 import com.sashank.skillswap.repository.UserRepository;
 import com.sashank.skillswap.util.DtoMapper;
+import com.sashank.skillswap.exception.ResourceNotFoundException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -241,5 +242,18 @@ class RescheduleServiceImplTest {
         ArgumentCaptor<RescheduleRequest> captor = ArgumentCaptor.forClass(RescheduleRequest.class);
         verify(rescheduleRequestRepository).save(captor.capture());
         assertThat(captor.getValue().getStatus()).isEqualTo(RescheduleStatus.REJECTED);
+    }
+
+    @Test
+    void getRescheduleRequests_shouldThrowNotFound_whenUserIsNotParticipant() {
+        Session session = buildSession(10L, User.builder().id(1L).build(), User.builder().id(2L).build(), SessionStatus.SCHEDULED);
+
+        when(sessionRepository.findById(10L)).thenReturn(Optional.of(session));
+
+        assertThatThrownBy(() -> rescheduleService.getRescheduleRequests(999L, 10L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Session not found");
+
+        verify(rescheduleRequestRepository, never()).findBySessionId(any());
     }
 }

@@ -67,9 +67,13 @@ public class RescheduleServiceImpl implements RescheduleService {
     }
 
     @Override
-    public List<RescheduleRequestResponse> getRescheduleRequests(Long sessionId) {
-        sessionRepository.findById(sessionId)
+    public List<RescheduleRequestResponse> getRescheduleRequests(Long userId, Long sessionId) {
+        Session session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Session not found"));
+
+        if (!isParticipant(session, userId)) {
+            throw new ResourceNotFoundException("Session not found");
+        }
 
         return rescheduleRequestRepository.findBySessionId(sessionId).stream()
                 .map(dtoMapper::toRescheduleRequestResponse)

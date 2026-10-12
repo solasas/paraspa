@@ -66,7 +66,14 @@ public class SessionServiceImpl implements SessionService {
     }
 
     @Override
-    public List<SessionResponse> getSessionsByExchange(Long exchangeId) {
+    public List<SessionResponse> getSessionsByExchange(Long userId, Long exchangeId) {
+        SkillExchange exchange = exchangeRepository.findById(exchangeId)
+                .orElseThrow(() -> new ResourceNotFoundException("Exchange not found"));
+
+        if (!exchange.getRequester().getId().equals(userId) && !exchange.getReceiver().getId().equals(userId)) {
+            throw new ResourceNotFoundException("Exchange not found");
+        }
+
         return sessionRepository.findByExchangeId(exchangeId).stream()
                 .map(dtoMapper::toSessionResponse)
                 .toList();
@@ -80,9 +87,15 @@ public class SessionServiceImpl implements SessionService {
     }
 
     @Override
-    public SessionResponse getSessionById(Long sessionId) {
+    public SessionResponse getSessionById(Long userId, Long sessionId) {
         Session session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Session not found"));
+
+        if (!session.getExchange().getRequester().getId().equals(userId) &&
+                !session.getExchange().getReceiver().getId().equals(userId)) {
+            throw new ResourceNotFoundException("Session not found");
+        }
+
         return dtoMapper.toSessionResponse(session);
     }
 
@@ -94,6 +107,10 @@ public class SessionServiceImpl implements SessionService {
         if (!session.getExchange().getRequester().getId().equals(userId) &&
                 !session.getExchange().getReceiver().getId().equals(userId)) {
             throw new BadRequestException("Only exchange participants can complete session");
+        }
+
+        if (!session.getStatus().equals(SessionStatus.SCHEDULED)) {
+            throw new BadRequestException("Only scheduled sessions can be completed");
         }
 
         session.setStatus(SessionStatus.COMPLETED);
@@ -108,6 +125,10 @@ public class SessionServiceImpl implements SessionService {
 
         if (!session.getScheduledBy().getId().equals(userId)) {
             throw new BadRequestException("Only session scheduler can cancel session");
+        }
+
+        if (!session.getStatus().equals(SessionStatus.SCHEDULED)) {
+            throw new BadRequestException("Only scheduled sessions can be cancelled");
         }
 
         session.setStatus(SessionStatus.CANCELLED);
