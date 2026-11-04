@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -79,6 +80,13 @@ public class GlobalExceptionHandler {
         // Typically a unique-constraint race (two identical requests at once); never leak SQL details
         return build(HttpStatus.CONFLICT, "Conflict",
                 "The request conflicts with existing data", request);
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleHttpRequestMethodNotSupportedException(
+            HttpRequestMethodNotSupportedException ex, WebRequest request) {
+        return build(HttpStatus.METHOD_NOT_ALLOWED, "Method Not Allowed",
+                "Request method '" + ex.getMethod() + "' is not supported for this endpoint", request);
     }
 
     @ExceptionHandler(NoResourceFoundException.class)

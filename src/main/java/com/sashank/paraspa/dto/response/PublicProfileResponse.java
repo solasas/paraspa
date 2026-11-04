@@ -1,5 +1,6 @@
 package com.sashank.paraspa.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -22,5 +23,6 @@ public class PublicProfileResponse {
     private List<UserSkillResponse> learnSkills;
     private long followersCount;
     private long followingCount;
+    @JsonProperty("isFollowedByMe")
     private boolean followedByMe;
 }

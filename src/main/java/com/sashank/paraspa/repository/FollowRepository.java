@@ -1,6 +1,7 @@
 package com.sashank.paraspa.repository;
 
 import com.sashank.paraspa.entity.Follow;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -14,9 +15,11 @@ public interface FollowRepository extends JpaRepository<Follow, Long> {
 
     Optional<Follow> findByFollowerIdAndFollowingId(Long followerId, Long followingId);
 
-    List<Follow> findByFollowingIdOrderByCreatedAtDesc(Long followingId);
+    /** Followers of a user, newest first. */
+    List<Follow> findByFollowingIdOrderByCreatedAtDescIdDesc(Long followingId, Pageable pageable);
 
-    List<Follow> findByFollowerIdOrderByCreatedAtDesc(Long followerId);
+    /** Users a user follows, newest first. */
+    List<Follow> findByFollowerIdOrderByCreatedAtDescIdDesc(Long followerId, Pageable pageable);
 
     long countByFollowingId(Long followingId);
 

@@ -2,14 +2,16 @@ package com.sashank.paraspa.entity;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
+import org.hibernate.annotations.Check;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 @Entity
+@Check(name = "chk_follows_not_self", constraints = "follower_id <> following_id")
 @Table(name = "follows", uniqueConstraints = {
-        @UniqueConstraint(columnNames = {"follower_id", "following_id"})
+        @UniqueConstraint(name = "uk_follows_follower_following", columnNames = {"follower_id", "following_id"})
 })
 @Data
 @NoArgsConstructor

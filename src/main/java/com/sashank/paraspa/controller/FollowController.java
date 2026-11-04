@@ -1,11 +1,10 @@
 package com.sashank.paraspa.controller;
 
 import com.sashank.paraspa.dto.response.FollowResponse;
-import com.sashank.paraspa.dto.response.FollowStatsResponse;
+import com.sashank.paraspa.dto.response.FollowStatusResponse;
 import com.sashank.paraspa.dto.response.UserResponse;
 import com.sashank.paraspa.service.FollowService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
@@ -17,12 +16,11 @@ public class FollowController {
     @Autowired
     private FollowService followService;
 
-    @PostMapping("/{userId}/follow")
+    @PutMapping("/{userId}/follow")
     public ResponseEntity<FollowResponse> followUser(
             @RequestAttribute("userId") Long currentUserId,
             @PathVariable Long userId) {
-        FollowResponse response = followService.followUser(currentUserId, userId);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        return ResponseEntity.ok(followService.followUser(currentUserId, userId));
     }
 
     @DeleteMapping("/{userId}/follow")
@@ -34,19 +32,25 @@ public class FollowController {
     }
 
     @GetMapping("/{userId}/followers")
-    public ResponseEntity<List<UserResponse>> getFollowers(@PathVariable Long userId) {
-        return ResponseEntity.ok(followService.getFollowers(userId));
+    public ResponseEntity<List<UserResponse>> getFollowers(
+            @PathVariable Long userId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(followService.getFollowers(userId, page, size));
     }
 
     @GetMapping("/{userId}/following")
-    public ResponseEntity<List<UserResponse>> getFollowing(@PathVariable Long userId) {
-        return ResponseEntity.ok(followService.getFollowing(userId));
+    public ResponseEntity<List<UserResponse>> getFollowing(
+            @PathVariable Long userId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(followService.getFollowing(userId, page, size));
     }
 
-    @GetMapping("/{userId}/follow-stats")
-    public ResponseEntity<FollowStatsResponse> getFollowStats(
+    @GetMapping("/{userId}/follow-status")
+    public ResponseEntity<FollowStatusResponse> getFollowStatus(
             @RequestAttribute("userId") Long currentUserId,
             @PathVariable Long userId) {
-        return ResponseEntity.ok(followService.getFollowStats(currentUserId, userId));
+        return ResponseEntity.ok(followService.getFollowStatus(currentUserId, userId));
     }
 }

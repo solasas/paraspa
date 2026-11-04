@@ -1,18 +1,19 @@
 package com.sashank.paraspa.service.impl;
 
 import com.sashank.paraspa.dto.response.FollowResponse;
-import com.sashank.paraspa.dto.response.FollowStatsResponse;
+import com.sashank.paraspa.dto.response.FollowStatusResponse;
 import com.sashank.paraspa.dto.response.UserResponse;
 import com.sashank.paraspa.entity.Follow;
 import com.sashank.paraspa.entity.User;
-import com.sashank.paraspa.exception.AlreadyExistsException;
 import com.sashank.paraspa.exception.BadRequestException;
 import com.sashank.paraspa.exception.ResourceNotFoundException;
 import com.sashank.paraspa.repository.FollowRepository;
 import com.sashank.paraspa.repository.UserRepository;
 import com.sashank.paraspa.service.FollowService;
 import com.sashank.paraspa.util.DtoMapper;
+import com.sashank.paraspa.util.PaginationUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import java.util.List;
 
@@ -28,6 +29,9 @@ public class FollowServiceImpl implements FollowService {
     @Autowired
     private DtoMapper dtoMapper;
 
+    // Deliberately not @Transactional: if two identical requests race and the unique constraint
+    // rejects one, save() has already rolled back its own transaction, so we can safely re-read
+    // the winner's row and answer idempotently.
     @Override
     public FollowResponse followUser(Long userId, Long targetUserId) {
         if (userId.equals(targetUserId)) {
@@ -40,8 +44,9 @@ public class FollowServiceImpl implements FollowService {
         User target = userRepository.findById(targetUserId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        if (followRepository.existsByFollowerIdAndFollowingId(userId, targetUserId)) {
-            throw new AlreadyExistsException("You are already following this user");
+        Follow existing = followRepository.findByFollowerIdAndFollowingId(userId, targetUserId).orElse(null);
+        if (existing != null) {
+            return dtoMapper.toFollowResponse(existing);
         }
 
         Follow follow = Follow.builder()
@@ -49,42 +54,49 @@ public class FollowServiceImpl implements FollowService {
                 .following(target)
                 .build();
 
-        follow = followRepository.save(follow);
+        try {
+            follow = followRepository.save(follow);
+        } catch (DataIntegrityViolationException e) {
+            follow = followRepository.findByFollowerIdAndFollowingId(userId, targetUserId).orElseThrow(() -> e);
+        }
         return dtoMapper.toFollowResponse(follow);
     }
 
     @Override
     public void unfollowUser(Long userId, Long targetUserId) {
-        Follow follow = followRepository.findByFollowerIdAndFollowingId(userId, targetUserId)
-                .orElseThrow(() -> new ResourceNotFoundException("You are not following this user"));
+        ensureUserExists(targetUserId);
 
-        followRepository.delete(follow);
+        followRepository.findByFollowerIdAndFollowingId(userId, targetUserId)
+                .ifPresent(followRepository::delete);
     }
 
     @Override
-    public List<UserResponse> getFollowers(Long targetUserId) {
+    public List<UserResponse> getFollowers(Long targetUserId, int page, int size) {
         ensureUserExists(targetUserId);
-        return followRepository.findByFollowingIdOrderByCreatedAtDesc(targetUserId).stream()
+        return followRepository.findByFollowingIdOrderByCreatedAtDescIdDesc(
+                        targetUserId, PaginationUtil.toPageable(page, size)).stream()
                 .map(follow -> dtoMapper.toPublicUserResponse(follow.getFollower()))
                 .toList();
     }
 
     @Override
-    public List<UserResponse> getFollowing(Long targetUserId) {
+    public List<UserResponse> getFollowing(Long targetUserId, int page, int size) {
         ensureUserExists(targetUserId);
-        return followRepository.findByFollowerIdOrderByCreatedAtDesc(targetUserId).stream()
+        return followRepository.findByFollowerIdOrderByCreatedAtDescIdDesc(
+                        targetUserId, PaginationUtil.toPageable(page, size)).stream()
                 .map(follow -> dtoMapper.toPublicUserResponse(follow.getFollowing()))
                 .toList();
     }
 
     @Override
-    public FollowStatsResponse getFollowStats(Long viewerId, Long targetUserId) {
+    public FollowStatusResponse getFollowStatus(Long viewerId, Long targetUserId) {
         ensureUserExists(targetUserId);
-        return FollowStatsResponse.builder()
+        return FollowStatusResponse.builder()
                 .userId(targetUserId)
+                .followedByMe(followRepository.existsByFollowerIdAndFollowingId(viewerId, targetUserId))
+                .followingMe(followRepository.existsByFollowerIdAndFollowingId(targetUserId, viewerId))
                 .followersCount(followRepository.countByFollowingId(targetUserId))
                 .followingCount(followRepository.countByFollowerId(targetUserId))
-                .followedByMe(followRepository.existsByFollowerIdAndFollowingId(viewerId, targetUserId))
                 .build();
     }
 

@@ -23,7 +23,7 @@ paraspa lets people trade skills: "I teach guitar, I want to learn Python."
 | 10 | **Reschedule** | Propose a new time for a session; the *other* person accepts or rejects. |
 | 11 | **Ratings** | After a session is completed, each participant rates the other 1–5 with optional review. Rating summary + star breakdown per user. |
 | 12 | **Chat** | 1-to-1 messaging: REST for history/conversation list/unread count, STOMP WebSocket for live delivery. |
-| 13 | **Follows** | Follow / unfollow users; follower and following lists; counts and "do I follow them" flag. |
+| 13 | **Follows** | Follow / unfollow users (idempotent); paginated follower and following lists; follow status in both directions; follower/following counts on the public profile. |
 | 14 | **Skill posts & feed** | Post text about a skill. Explore all posts or a feed of people I follow (+ my own), optionally filtered by skill. Like and comment. |
 | 15 | **Public profiles & avatars** | `GET /users/{id}` returns another user's public profile (never the email). Users upload a profile picture (JPG/PNG/WebP, ≤ 2 MB). |
 
@@ -55,8 +55,8 @@ Most list endpoints take `?page=0&size=20` (`page` is zero-based, **default size
 
 The response is still a plain JSON array. There is no total count: keep requesting `page + 1` until a page comes back with **fewer than `size`** items (or empty).
 
-Paginated today: `GET /users/search`, `GET /exchanges`, `/exchanges/sent`, `/exchanges/received`, `GET /messages/conversations/{userId}`, `GET /posts`, `/posts/feed`, `/users/{id}/posts`.
-**Not** paginated yet: matches, skills, followers/following, comments, ratings, `GET /messages/conversations` (inbox list), sessions.
+Paginated today: `GET /users/search`, `GET /exchanges`, `/exchanges/sent`, `/exchanges/received`, `GET /messages/conversations/{userId}`, `GET /users/{id}/followers`, `GET /users/{id}/following`, `GET /posts`, `/posts/feed`, `/users/{id}/posts`.
+**Not** paginated yet: matches, skills, comments, ratings, `GET /messages/conversations` (inbox list), sessions.
 
 **Cursor pagination (for future list endpoints).** New endpoints will return this envelope instead of an array:
 ```json
@@ -93,7 +93,7 @@ Validation errors: `status 400`, `error: "Validation Error"`, `message` = `"fiel
 |--------|------|
 | 400 | Validation failure, **and** all business-rule violations (wrong user, wrong state), **and wrong login credentials** |
 | 404 | Resource not found, **or** you aren't a participant of the exchange/session you asked for (the server doesn't reveal that it exists) |
-| 409 | Email already registered; already following / already liked / skill already added; or any database uniqueness conflict (e.g. a double-tapped request) |
+| 409 | Email already registered; already liked / skill already added; or any database uniqueness conflict (e.g. a double-tapped request) |
 | 401 | Declared in handler but business code mostly uses 400 — don't rely on it |
 | 403 / 401 | Missing/invalid/expired JWT on a protected route. No custom entry point is configured, so Spring's default applies (expect **403 with an empty body**; not verified by running the server). Treat 401 **and** 403 as "log in again". |
 | 500 | Unhandled |
@@ -372,25 +372,27 @@ UI: show Accept/Reject only when `status === "PENDING"` and `requestedBy.id !== 
 
 ### 4.13 Follows
 
-| Method | Path | Body | Success |
-|--------|------|------|---------|
-| POST | `/api/users/{userId}/follow` | none | **201** `FollowResponse` |
-| DELETE | `/api/users/{userId}/follow` | | **204** |
-| GET | `/api/users/{userId}/followers` | people who follow `userId` (newest first) | 200 `UserResponse[]` |
-| GET | `/api/users/{userId}/following` | people `userId` follows (newest first) | 200 `UserResponse[]` |
-| GET | `/api/users/{userId}/follow-stats` | | 200 `FollowStatsResponse` |
+| Method | Path | Body / query | Success |
+|--------|------|--------------|---------|
+| PUT | `/api/users/{userId}/follow` | none. **Idempotent** | 200 `FollowResponse` |
+| DELETE | `/api/users/{userId}/follow` | none. **Idempotent** | **204** |
+| GET | `/api/users/{userId}/followers` | people who follow `userId`, newest first. `page`, `size` | 200 `UserResponse[]` |
+| GET | `/api/users/{userId}/following` | people `userId` follows, newest first. `page`, `size` | 200 `UserResponse[]` |
+| GET | `/api/users/{userId}/follow-status` | | 200 `FollowStatusResponse` |
 
 ```json
 // FollowResponse
 { "id": 1, "follower": { /* UserResponse */ }, "following": { /* UserResponse */ }, "createdAt": "…" }
 
-// FollowStatsResponse
-{ "userId": 2, "followersCount": 5, "followingCount": 3, "followedByMe": true }
+// FollowStatusResponse
+{ "userId": 2, "isFollowedByMe": true, "isFollowingMe": false, "followersCount": 5, "followingCount": 3 }
 ```
 - The follower is always the logged-in user (from the JWT).
-- Following yourself → 400 `You cannot follow yourself`. Already following → **409** `You are already following this user`. Unknown user → 404.
-- Unfollowing someone you don't follow → 404 `You are not following this user`.
-- Use `follow-stats` for the profile header and to decide between a Follow and an Unfollow button (`followedByMe`).
+- `PUT` is idempotent: following someone you already follow is **not an error**. It returns **200** with the existing follow, so a double tap or a retry after a timeout is safe. `DELETE` is idempotent too: unfollowing someone you don't follow is a **204** no-op. Both therefore never need a 409/404 special case in the UI.
+- Following yourself → **400** `You cannot follow yourself`. A user id that doesn't exist → **404** `User not found` (for `PUT`, `DELETE`, both lists and `follow-status`).
+- Lists follow the standard [pagination](#pagination) rules (default `size` 20, max 100; a page past the end is `[]`). Users in these lists have `email: null`.
+- `isFollowedByMe` = I follow them; `isFollowingMe` = they follow me. Show **Follow back** when `isFollowingMe && !isFollowedByMe`, and a mutual badge when both are true. The JSON keys really are `isFollowedByMe` / `isFollowingMe` (with the `is` prefix), the same style as `isMutual` on matches.
+- **Changed from the first version of this API:** `POST /follow` is gone (it now returns **405**; use `PUT`), `follow-stats` is renamed `follow-status` (the old URL is a 404), `followedByMe` is now `isFollowedByMe`, and the lists were not paginated before.
 
 ### 4.14 Posts, likes and comments
 
@@ -439,12 +441,12 @@ UI: show Accept/Reject only when `status === "PENDING"` and `requestedBy.id !== 
                      "breakdown": { "oneStar": 0, "twoStar": 0, "threeStar": 1, "fourStar": 2, "fiveStar": 2 } },
   "teachSkills": [ /* UserSkillResponse */ ],
   "learnSkills": [ /* UserSkillResponse */ ],
-  "followersCount": 12, "followingCount": 7, "followedByMe": false
+  "followersCount": 12, "followingCount": 7, "isFollowedByMe": false
 }
 ```
 - There is **no `email`** (and never will be) in this response. It also works for your own id.
 - This replaces the old workaround of assembling a profile from search + availability + ratings. Availability is still a separate call: `GET /users/{id}/availability`.
-- Follower/following counts are real (they come from the follow system), and `followedByMe` tells you which of Follow / Unfollow to show. For the people lists use `GET /users/{id}/followers` and `/following`.
+- Follower/following counts are real (they come from the follow system), and `isFollowedByMe` tells you which of Follow / Unfollow to show (the key is `isFollowedByMe`, not `followedByMe`). For the people lists use `GET /users/{id}/followers` and `/following`.
 - `UserResponse` now also carries `avatarUrl` everywhere it appears (exchanges, messages, search, …). Users shown through follows, posts and comments have `email: null`.
 
 ---
@@ -514,7 +516,7 @@ Keep unread badges in sync: increment on incoming messages where `sender.id !== 
 | Home feed | `GET /posts/feed[?skillId&page&size]`, `POST /posts`, `POST/DELETE /posts/{id}/like` |
 | Explore / by skill | `GET /posts[?skillId&page&size]` |
 | Post detail | `GET /posts/{id}`, `GET/POST /posts/{id}/comments`, `DELETE /posts/{id}/comments/{commentId}`, `DELETE /posts/{id}` |
-| Follow lists / profile header | `GET /users/{id}/follow-stats`, `/users/{id}/followers`, `/users/{id}/following`, `POST/DELETE /users/{id}/follow`, `GET /users/{id}/posts` |
+| Follow lists / profile header | `GET /users/{id}/follow-status`, `/users/{id}/followers`, `/users/{id}/following`, `PUT/DELETE /users/{id}/follow`, `GET /users/{id}/posts` |
 
 ---
 

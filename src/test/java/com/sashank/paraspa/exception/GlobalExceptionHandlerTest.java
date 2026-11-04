@@ -47,6 +47,16 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void unsupportedHttpMethod_shouldBecome405NotServerError() {
+        ResponseEntity<ErrorResponse> response = handler.handleHttpRequestMethodNotSupportedException(
+                new org.springframework.web.HttpRequestMethodNotSupportedException("POST"), request());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
+        assertThat(response.getBody().getStatus()).isEqualTo(405);
+        assertThat(response.getBody().getMessage()).contains("POST");
+    }
+
+    @Test
     void missingStaticResource_shouldBecome404NotServerError() {
         ResponseEntity<ErrorResponse> response = handler.handleNoResourceFoundException(
                 new org.springframework.web.servlet.resource.NoResourceFoundException(

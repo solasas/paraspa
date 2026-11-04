@@ -27,7 +27,7 @@ git clone https://github.com/solasas/paraspa-mobileapp.git
 - **Chat**: real-time messaging over WebSocket (STOMP) with persisted history and unread counts
 - **Public profiles & avatars**: `GET /api/users/{id}` (never exposes email); upload a JPG/PNG/WebP profile picture (max 2 MB), served at `/files/**`
 - **Pagination**: `page`/`size` (default 20, max 100) on search, exchanges, message history and post lists; a reusable cursor envelope (`items` + `nextCursor`) for new endpoints
-- **Follows**: follow and unfollow users; follower and following lists with counts
+- **Follows**: follow and unfollow users (both idempotent; no self-follows), paginated follower and following lists, follow status, and follower/following counts on the public profile
 - **Skill posts & feed**: post about a skill, browse all posts or a feed of people you follow (both filterable by skill, paginated), like and comment
 
 ## Architecture
@@ -81,7 +81,7 @@ Full request and response details: [docs/FRONTEND-HANDOFF.md](docs/FRONTEND-HAND
 | Reschedule | `POST /api/sessions/{id}/reschedule`, `GET .../reschedule-requests`, `PUT .../reschedule-requests/{rid}/accept\|reject` |
 | Ratings | `POST /api/sessions/{id}/ratings`, `GET /api/users/{id}/ratings`, `GET /api/users/{id}/rating-summary`, `GET /api/profile/me/ratings` |
 | Messages | `POST /api/messages`, `GET /api/messages/conversations`, `GET .../conversations/{userId}[?page&size]`, `GET .../unread-count` |
-| Follows | `POST/DELETE /api/users/{id}/follow`, `GET /api/users/{id}/followers`, `GET /api/users/{id}/following`, `GET /api/users/{id}/follow-stats` |
+| Follows | `PUT/DELETE /api/users/{id}/follow`, `GET /api/users/{id}/followers[?page&size]`, `GET /api/users/{id}/following[?page&size]`, `GET /api/users/{id}/follow-status` |
 | Posts | `POST/GET /api/posts[?skillId&page&size]`, `GET /api/posts/feed[?skillId&page&size]`, `GET/DELETE /api/posts/{id}`, `GET /api/users/{id}/posts[?page&size]` |
 | Likes & comments | `POST/DELETE /api/posts/{id}/like`, `POST/GET /api/posts/{id}/comments`, `DELETE /api/posts/{id}/comments/{commentId}` |
 
@@ -96,7 +96,7 @@ Full request and response details: [docs/FRONTEND-HANDOFF.md](docs/FRONTEND-HAND
 - Exchanges, sessions and reschedule requests are visible only to their participants (others get 404); only participants can rate a session
 - Avatar uploads are checked by file content (JPG/PNG/WebP only, max 2 MB), not by the client's declared type, and stored under a random name. `GET /files/**` is public so image widgets can load it without a token
 - Email addresses are never returned by the public profile, search, follow or post endpoints
-- Database unique constraints back the duplicate checks (`user_skills`, `ratings`, follows, likes); a violation returns 409
+- Database constraints back the business rules: unique `(user_id, skill_id, type)` on `user_skills`, `(session_id, rated_by_id)` on `ratings`, and `(follower_id, following_id)` plus a no-self-follow check on `follows`; a unique violation returns 409 (following twice is not an error, it is idempotent)
 - Only a post's author can delete it and only a comment's author can delete it (others get 404)
 - CORS allows `http://localhost:3000` and `http://localhost:8080`; edit `SecurityConfig` and `WebSocketConfig` for other origins
 - Change `jwt.secret` before deploying
