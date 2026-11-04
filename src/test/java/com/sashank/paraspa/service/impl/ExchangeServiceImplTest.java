@@ -229,4 +229,56 @@ class ExchangeServiceImplTest {
 
         verify(exchangeRepository, never()).save(any());
     }
+
+
+    @Test
+    void getMyExchanges_shouldQueryRequestedPageNewestFirst() {
+        when(exchangeRepository.findByRequesterIdOrReceiverIdOrderByCreatedAtDescIdDesc(
+                org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq(1L),
+                any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(java.util.List.of());
+
+        exchangeService.getMyExchanges(1L, 2, 30);
+
+        ArgumentCaptor<org.springframework.data.domain.Pageable> captor =
+                ArgumentCaptor.forClass(org.springframework.data.domain.Pageable.class);
+        verify(exchangeRepository).findByRequesterIdOrReceiverIdOrderByCreatedAtDescIdDesc(
+                org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq(1L), captor.capture());
+        assertThat(captor.getValue().getPageNumber()).isEqualTo(2);
+        assertThat(captor.getValue().getPageSize()).isEqualTo(30);
+    }
+
+    @Test
+    void getSentExchanges_shouldQueryRequestedPage() {
+        when(exchangeRepository.findByRequesterIdOrderByCreatedAtDescIdDesc(
+                org.mockito.ArgumentMatchers.eq(1L), any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(java.util.List.of());
+
+        assertThat(exchangeService.getSentExchanges(1L, 0, 20)).isEmpty();
+
+        verify(exchangeRepository).findByRequesterIdOrderByCreatedAtDescIdDesc(
+                org.mockito.ArgumentMatchers.eq(1L), any(org.springframework.data.domain.Pageable.class));
+    }
+
+    @Test
+    void getReceivedExchanges_shouldQueryRequestedPage() {
+        when(exchangeRepository.findByReceiverIdOrderByCreatedAtDescIdDesc(
+                org.mockito.ArgumentMatchers.eq(1L), any(org.springframework.data.domain.Pageable.class)))
+                .thenReturn(java.util.List.of());
+
+        assertThat(exchangeService.getReceivedExchanges(1L, 0, 20)).isEmpty();
+
+        verify(exchangeRepository).findByReceiverIdOrderByCreatedAtDescIdDesc(
+                org.mockito.ArgumentMatchers.eq(1L), any(org.springframework.data.domain.Pageable.class));
+    }
+
+    @Test
+    void exchangeLists_shouldRejectSizeAboveMax() {
+        assertThatThrownBy(() -> exchangeService.getMyExchanges(1L, 0, 101))
+                .isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> exchangeService.getSentExchanges(1L, 0, 101))
+                .isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> exchangeService.getReceivedExchanges(1L, -1, 20))
+                .isInstanceOf(BadRequestException.class);
+    }
 }

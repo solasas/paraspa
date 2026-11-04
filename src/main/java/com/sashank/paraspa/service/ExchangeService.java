@@ -6,9 +6,9 @@ import java.util.List;
 
 public interface ExchangeService {
     ExchangeResponse createExchange(Long userId, CreateExchangeRequest request);
-    List<ExchangeResponse> getMyExchanges(Long userId);
-    List<ExchangeResponse> getSentExchanges(Long userId);
-    List<ExchangeResponse> getReceivedExchanges(Long userId);
+    List<ExchangeResponse> getMyExchanges(Long userId, int page, int size);
+    List<ExchangeResponse> getSentExchanges(Long userId, int page, int size);
+    List<ExchangeResponse> getReceivedExchanges(Long userId, int page, int size);
     ExchangeResponse getExchangeById(Long userId, Long exchangeId);
     ExchangeResponse acceptExchange(Long userId, Long exchangeId);
     ExchangeResponse rejectExchange(Long userId, Long exchangeId);

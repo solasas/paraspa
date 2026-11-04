@@ -7,7 +7,7 @@ import java.util.List;
 
 public interface MessageService {
     MessageResponse sendMessage(Long senderId, SendMessageRequest request);
-    List<MessageResponse> getConversation(Long userId, Long otherUserId);
+    List<MessageResponse> getConversation(Long userId, Long otherUserId, int page, int size);
     List<ConversationResponse> getConversations(Long userId);
     long getUnreadCount(Long userId);
 }

@@ -15,6 +15,7 @@ import com.sashank.paraspa.repository.UserRepository;
 import com.sashank.paraspa.repository.UserSkillRepository;
 import com.sashank.paraspa.service.ExchangeService;
 import com.sashank.paraspa.util.DtoMapper;
+import com.sashank.paraspa.util.PaginationUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import java.util.List;
@@ -77,22 +78,25 @@ public class ExchangeServiceImpl implements ExchangeService {
     }
 
     @Override
-    public List<ExchangeResponse> getMyExchanges(Long userId) {
-        return exchangeRepository.findByRequesterIdOrReceiverId(userId, userId).stream()
+    public List<ExchangeResponse> getMyExchanges(Long userId, int page, int size) {
+        return exchangeRepository.findByRequesterIdOrReceiverIdOrderByCreatedAtDescIdDesc(
+                        userId, userId, PaginationUtil.toPageable(page, size)).stream()
                 .map(dtoMapper::toExchangeResponse)
                 .toList();
     }
 
     @Override
-    public List<ExchangeResponse> getSentExchanges(Long userId) {
-        return exchangeRepository.findByRequesterId(userId).stream()
+    public List<ExchangeResponse> getSentExchanges(Long userId, int page, int size) {
+        return exchangeRepository.findByRequesterIdOrderByCreatedAtDescIdDesc(
+                        userId, PaginationUtil.toPageable(page, size)).stream()
                 .map(dtoMapper::toExchangeResponse)
                 .toList();
     }
 
     @Override
-    public List<ExchangeResponse> getReceivedExchanges(Long userId) {
-        return exchangeRepository.findByReceiverId(userId).stream()
+    public List<ExchangeResponse> getReceivedExchanges(Long userId, int page, int size) {
+        return exchangeRepository.findByReceiverIdOrderByCreatedAtDescIdDesc(
+                        userId, PaginationUtil.toPageable(page, size)).stream()
                 .map(dtoMapper::toExchangeResponse)
                 .toList();
     }

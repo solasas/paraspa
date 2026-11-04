@@ -11,10 +11,12 @@ import com.sashank.paraspa.repository.MessageRepository;
 import com.sashank.paraspa.repository.UserRepository;
 import com.sashank.paraspa.service.MessageService;
 import com.sashank.paraspa.util.DtoMapper;
+import com.sashank.paraspa.util.PaginationUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,11 +57,15 @@ public class MessageServiceImpl implements MessageService {
     }
 
     @Override
-    public List<MessageResponse> getConversation(Long userId, Long otherUserId) {
+    public List<MessageResponse> getConversation(Long userId, Long otherUserId, int page, int size) {
         userRepository.findById(otherUserId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        List<Message> messages = messageRepository.findConversation(userId, otherUserId);
+        // Page 0 is the newest `size` messages, page 1 the `size` before those, and so on.
+        // Each page is returned oldest -> newest so the client can render it as-is.
+        List<Message> messages = new ArrayList<>(messageRepository.findConversation(
+                userId, otherUserId, PaginationUtil.toPageable(page, size)));
+        Collections.reverse(messages);
 
         List<Message> unreadFromOtherUser = messages.stream()
                 .filter(m -> !m.isRead()

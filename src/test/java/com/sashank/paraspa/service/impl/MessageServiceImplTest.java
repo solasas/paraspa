@@ -16,6 +16,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 import java.util.Optional;
@@ -24,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -119,11 +121,11 @@ class MessageServiceImplTest {
 
         when(userRepository.findById(otherUserId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> messageService.getConversation(userId, otherUserId))
+        assertThatThrownBy(() -> messageService.getConversation(userId, otherUserId, 0, 20))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("User not found");
 
-        verify(messageRepository, never()).findConversation(anyLong(), anyLong());
+        verify(messageRepository, never()).findConversation(anyLong(), anyLong(), any(Pageable.class));
     }
 
     @Test
@@ -149,11 +151,11 @@ class MessageServiceImplTest {
                 .build();
 
         when(userRepository.findById(otherUserId)).thenReturn(Optional.of(otherUser));
-        when(messageRepository.findConversation(userId, otherUserId))
+        when(messageRepository.findConversation(eq(userId), eq(otherUserId), any(Pageable.class)))
                 .thenReturn(List.of(incomingUnread, outgoingRead));
         when(dtoMapper.toMessageResponse(any(Message.class))).thenReturn(MessageResponse.builder().build());
 
-        messageService.getConversation(userId, otherUserId);
+        messageService.getConversation(userId, otherUserId, 0, 20);
 
         ArgumentCaptor<List<Message>> savedCaptor = ArgumentCaptor.forClass(List.class);
         verify(messageRepository).saveAll(savedCaptor.capture());
@@ -205,5 +207,57 @@ class MessageServiceImplTest {
         long count = messageService.getUnreadCount(userId);
 
         assertThat(count).isEqualTo(5L);
+    }
+
+
+    @Test
+    void getConversation_shouldReturnPageOldestFirstEvenThoughRepositoryReturnsNewestFirst() {
+        Long userId = 1L;
+        Long otherUserId = 2L;
+        User user = User.builder().id(userId).build();
+        User otherUser = User.builder().id(otherUserId).build();
+
+        Message older = Message.builder().id(10L).sender(user).receiver(otherUser).content("first").read(true).build();
+        Message newer = Message.builder().id(11L).sender(user).receiver(otherUser).content("second").read(true).build();
+
+        when(userRepository.findById(otherUserId)).thenReturn(Optional.of(otherUser));
+        // repository contract: newest first
+        when(messageRepository.findConversation(eq(userId), eq(otherUserId), any(Pageable.class)))
+                .thenReturn(List.of(newer, older));
+        when(dtoMapper.toMessageResponse(any(Message.class))).thenAnswer(invocation -> {
+            Message m = invocation.getArgument(0);
+            return MessageResponse.builder().id(m.getId()).build();
+        });
+
+        List<MessageResponse> result = messageService.getConversation(userId, otherUserId, 0, 20);
+
+        assertThat(result).extracting(MessageResponse::getId).containsExactly(10L, 11L);
+    }
+
+    @Test
+    void getConversation_shouldRequestTheGivenPageAndSize() {
+        Long userId = 1L;
+        Long otherUserId = 2L;
+
+        when(userRepository.findById(otherUserId)).thenReturn(Optional.of(User.builder().id(otherUserId).build()));
+        when(messageRepository.findConversation(eq(userId), eq(otherUserId), any(Pageable.class)))
+                .thenReturn(List.of());
+
+        messageService.getConversation(userId, otherUserId, 3, 50);
+
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(messageRepository).findConversation(eq(userId), eq(otherUserId), captor.capture());
+        assertThat(captor.getValue().getPageNumber()).isEqualTo(3);
+        assertThat(captor.getValue().getPageSize()).isEqualTo(50);
+    }
+
+    @Test
+    void getConversation_shouldRejectSizeAboveMax() {
+        when(userRepository.findById(2L)).thenReturn(Optional.of(User.builder().id(2L).build()));
+
+        assertThatThrownBy(() -> messageService.getConversation(1L, 2L, 0, 101))
+                .isInstanceOf(BadRequestException.class);
+
+        verify(messageRepository, never()).findConversation(anyLong(), anyLong(), any(Pageable.class));
     }
 }

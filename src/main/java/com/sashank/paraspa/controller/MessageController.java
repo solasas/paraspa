@@ -36,8 +36,10 @@ public class MessageController {
     @GetMapping("/conversations/{otherUserId}")
     public ResponseEntity<List<MessageResponse>> getConversation(
             @RequestAttribute("userId") Long userId,
-            @PathVariable Long otherUserId) {
-        List<MessageResponse> messages = messageService.getConversation(userId, otherUserId);
+            @PathVariable Long otherUserId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        List<MessageResponse> messages = messageService.getConversation(userId, otherUserId, page, size);
         return ResponseEntity.ok(messages);
     }
 

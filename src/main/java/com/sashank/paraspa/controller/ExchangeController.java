@@ -27,22 +27,28 @@ public class ExchangeController {
 
     @GetMapping
     public ResponseEntity<List<ExchangeResponse>> getMyExchanges(
-            @RequestAttribute("userId") Long userId) {
-        List<ExchangeResponse> exchanges = exchangeService.getMyExchanges(userId);
+            @RequestAttribute("userId") Long userId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        List<ExchangeResponse> exchanges = exchangeService.getMyExchanges(userId, page, size);
         return ResponseEntity.ok(exchanges);
     }
 
     @GetMapping("/sent")
     public ResponseEntity<List<ExchangeResponse>> getSentExchanges(
-            @RequestAttribute("userId") Long userId) {
-        List<ExchangeResponse> exchanges = exchangeService.getSentExchanges(userId);
+            @RequestAttribute("userId") Long userId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        List<ExchangeResponse> exchanges = exchangeService.getSentExchanges(userId, page, size);
         return ResponseEntity.ok(exchanges);
     }
 
     @GetMapping("/received")
     public ResponseEntity<List<ExchangeResponse>> getReceivedExchanges(
-            @RequestAttribute("userId") Long userId) {
-        List<ExchangeResponse> exchanges = exchangeService.getReceivedExchanges(userId);
+            @RequestAttribute("userId") Long userId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        List<ExchangeResponse> exchanges = exchangeService.getReceivedExchanges(userId, page, size);
         return ResponseEntity.ok(exchanges);
     }
 
