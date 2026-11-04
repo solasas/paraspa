@@ -30,6 +30,7 @@ git clone https://github.com/solasas/paraspa-mobileapp.git
 - **Follows**: follow and unfollow users (both idempotent; no self-follows), paginated follower and following lists, follow status, and follower/following counts on the public profile
 - **Notifications**: follows, likes, comments, replies, exchange requests/acceptances and messages notify the person concerned (never yourself; repeated likes/follows collapse into one). A REST list with an unread badge and read/read-all, plus a real-time push to `/user/queue/notifications` over the existing WebSocket
 - **Feeds**: a home feed (`/api/feed`: people you follow plus you, newest first), trending discovery (`/api/explore`: last 7 days, engagement with time decay, people you do not follow) and suggested people (`/api/explore/people`), all without N+1 queries (5 SQL statements per feed or explore request, 6 for suggestions, measured)
+- **Safety**: block users (hidden both ways everywhere, follows removed, no follow/message/exchange), report users, posts and comments (one report per reporter and target), private accounts (a follow becomes a request the owner accepts or rejects; only accepted followers see the posts), and an admin role to review reports and delete any post
 - **Posts & feed**: text and/or up to 4 images (JPG/PNG/WebP, 2 MB each) with up to 3 skill tags; browse all posts or a feed of people you follow (both filterable by skill tag), a user's posts with cursor pagination, idempotent likes with a liker list, comments with one level of replies (cursor-paginated, nested), and stored counters kept exact under concurrent requests
 
 ## Architecture
@@ -72,6 +73,8 @@ Services do not know that notifications exist. When something happens they publi
 | Event | Notifies | Type | Points at |
 |---|---|---|---|
 | a follow is created | the person followed | `FOLLOW` | `USER` = the follower |
+| a follow request on a private account | the account owner | `FOLLOW_REQUEST` | `USER` = the requester |
+| a follow request is accepted | the requester | `FOLLOW_ACCEPTED` | `USER` = the account owner |
 | a like is added | the post's author | `LIKE` | `POST` |
 | a top-level comment | the post's author | `COMMENT` | `POST` |
 | a reply | the author of the comment replied to | `REPLY` | `POST` |
@@ -152,6 +155,10 @@ Full request and response details: [docs/FRONTEND-HANDOFF.md](docs/FRONTEND-HAND
 | Ratings | `POST /api/sessions/{id}/ratings`, `GET /api/users/{id}/ratings`, `GET /api/users/{id}/rating-summary`, `GET /api/profile/me/ratings` |
 | Messages | `POST /api/messages`, `GET /api/messages/conversations`, `GET .../conversations/{userId}[?page&size]`, `GET .../unread-count` |
 | Follows | `PUT/DELETE /api/users/{id}/follow`, `GET /api/users/{id}/followers[?page&size]`, `GET /api/users/{id}/following[?page&size]`, `GET /api/users/{id}/follow-status` |
+| Follow requests | `GET /api/follow-requests[?page&size]` (pending requests to my private account), `PUT /api/follow-requests/{id}/accept\|reject` |
+| Blocks | `PUT/DELETE /api/users/{id}/block` (both idempotent, 204), `GET /api/blocks[?page&size]` (people I blocked) |
+| Reports | `POST /api/reports` (`{targetType: USER\|POST\|COMMENT, targetId, reason, details?}`, 201; 409 if already reported) |
+| Admin | `GET /api/admin/reports[?status=OPEN\|RESOLVED&cursor&size]`, `PUT /api/admin/reports/{id}/resolve` (`{note?}`); admins can also `DELETE` any post. All require the `ADMIN` role (403 otherwise) |
 | Notifications | `GET /api/notifications[?cursor&size]`, `GET /api/notifications/unread-count`, `PUT /api/notifications/{id}/read`, `PUT /api/notifications/read-all`; WebSocket: subscribe to `/user/queue/notifications` |
 | Feeds | `GET /api/feed[?cursor&size]` (home feed), `GET /api/explore[?skillId&cursor&size]` (trending), `GET /api/explore/people[?page&size]` (people to follow) |
 | Posts | `POST /api/posts` (JSON `{content, skillIds}` or multipart `content`, `skillIds`, `images`), `GET /api/posts[?skillId&page&size]`, `GET /api/posts/feed[?skillId&page&size]`, `GET/DELETE /api/posts/{id}`, `GET /api/users/{id}/posts[?cursor&size]` (cursor-paginated) |
@@ -164,6 +171,14 @@ Full request and response details: [docs/FRONTEND-HANDOFF.md](docs/FRONTEND-HAND
 
 **Pagination:** `?page=0&size=20` (zero-based; default size 20, maximum 100; anything else is a 400). List endpoints still return a plain JSON array. Message history counts back from the newest message. Cursor-paginated lists (`GET /api/users/{id}/posts`, and new list endpoints) return `{ "items": [...], "nextCursor": "..." }` (`CursorPageResponse`); pass `nextCursor` back as `?cursor=`. `CursorUtil` builds the opaque cursor, a `(createdAt, id)` position for posts, so items that share a timestamp are never skipped or repeated.
 
+## Safety: blocks, reports, private accounts, admin
+
+- **Blocks are symmetric.** If A blocks B, neither sees the other's posts, comments, likes, profile, search results, matches, suggestions, explore or feed; a direct request for the other's profile or post is a plain 404 (the blocked person cannot tell a block from a missing user). Blocking deletes follows (and follow requests) in both directions and the notifications between the two; unblocking does not bring them back. Neither can follow, message or start/accept an exchange with the other (the blocker is told to unblock first, 400). The filter is part of each SQL query (`QueryFragments`, an anti-join on `blocks`), not applied afterwards, so pages are never short and counts are right.
+- **Private accounts.** `isPrivate` on the profile (`PUT /api/profile/me`). Following a private account creates a `PENDING` follow; the owner accepts or rejects. Only `ACCEPTED` followers (and the owner) see the posts: a single post is a 404, `GET /api/users/{id}/posts` and the follower lists are a 403 `This account is private`, and the posts leave the general list, the feed and explore. Counts, suggestions and feeds use accepted follows only. Switching the account back to public accepts every waiting request.
+- **Reports.** One report per reporter and target (`UNIQUE (reporter_id, target_type, target_id)`, so a repeat is a 409 even when simultaneous). You cannot report yourself or your own content; `OTHER` needs `details`; the target must exist and be visible to you (blocking someone and then reporting them is allowed).
+- **Admin.** `users.role = 'ADMIN'` (there is deliberately no endpoint to grant it: `UPDATE users SET role = 'ADMIN' WHERE email = '...'`). `JwtAuthenticationFilter` reads the role from the database on every request and puts `ROLE_<role>` in the `Authentication`, so a demotion works immediately even with an old token, and a token for a deleted user is rejected. Method security is on; the admin controller uses `@PreAuthorize("hasRole('ADMIN')")` (and `/api/admin/**` is also restricted in the filter chain). Admins can delete any post (logged).
+- Tests: `SafetyQueriesIntegrationTest` (the real queries), `SafetyEndToEndTest` (HTTP: a blocked user's content is missing from search, matches, suggestions, explore, feed, post lists, comments and likes in both directions; private accounts; reports; admin), plus unit tests for each service and the JWT filter.
+
 ## Security
 
 - Stateless JWT auth (24 h, configurable) and BCrypt passwords; no refresh endpoint
@@ -174,6 +189,7 @@ Full request and response details: [docs/FRONTEND-HANDOFF.md](docs/FRONTEND-HAND
 - Database constraints back the business rules: unique `(user_id, skill_id, type)` on `user_skills`, `(session_id, rated_by_id)` on `ratings`, and `(follower_id, following_id)` plus a no-self-follow check on `follows`; a unique violation returns 409 (following twice is not an error, it is idempotent)
 - Only a post's author can delete it; a comment can be deleted by its author or by the author of the post it is on (everyone else gets 404); deleting a post removes its image files and rows (`ON DELETE CASCADE` backs this up in the database)
 - CORS allows `http://localhost:3000` and `http://localhost:8080`; edit `SecurityConfig` and `WebSocketConfig` for other origins
+- Roles: `USER` and `ADMIN`; the role is read from the database on every request (see Safety). Anything under `/api/admin/**` is 403 for non-admins
 - Change `jwt.secret` before deploying
 
 ## Setup
@@ -195,7 +211,7 @@ psql -U postgres -c "CREATE DATABASE paraspa_db;"
 
 Defaults live in `src/main/resources/application.properties` and can be overridden with environment variables: `DB_HOST`, `DB_PORT`, `DB_NAME` (`paraspa_db`), `DB_USER` (`postgres`), `DB_PASSWORD` (`password`), `PORT` (`8080`), `JWT_SECRET`. `STORAGE_ROOT` (default `uploads`, where avatars are written). 23 starter skills are seeded on first start.
 
-**Database migrations (Flyway):** the schema is created and changed only by the SQL files in `src/main/resources/db/migration` (`V1` baseline, `V2` social tables, `V3` phase 0, `V4` follow constraints, `V5` post media/tags/counters, `V6` comment replies, `V7` feed indexes, `V8` notifications). Hibernate runs with `ddl-auto=validate`, so the app refuses to start if an entity and the database disagree. To change the schema, add a new `V<n>__description.sql`; never edit an applied one. Databases created before Flyway (by Hibernate) are baselined at version 1 automatically (`baseline-on-migrate=true`) and then receive V2 onwards; those scripts are written to be safe on a database that already has some of the objects. Worth knowing: `V3` removes any duplicate `user_skills` / `ratings` rows (keeping the oldest) before adding the unique constraints, `V6` renames `post_comments` to `comments` and adds `parent_id`, and `V5` turns each existing post's single skill into a skill tag, backfills the like/comment counters, and then drops the old `posts.skill_id` column.
+**Database migrations (Flyway):** the schema is created and changed only by the SQL files in `src/main/resources/db/migration` (`V1` baseline, `V2` social tables, `V3` phase 0, `V4` follow constraints, `V5` post media/tags/counters, `V6` comment replies, `V7` feed indexes, `V8` notifications, `V9` blocks, reports, private accounts and follow requests). Hibernate runs with `ddl-auto=validate`, so the app refuses to start if an entity and the database disagree. To change the schema, add a new `V<n>__description.sql`; never edit an applied one. Databases created before Flyway (by Hibernate) are baselined at version 1 automatically (`baseline-on-migrate=true`) and then receive V2 onwards; those scripts are written to be safe on a database that already has some of the objects. Worth knowing: `V3` removes any duplicate `user_skills` / `ratings` rows (keeping the oldest) before adding the unique constraints, `V6` renames `post_comments` to `comments` and adds `parent_id`, and `V5` turns each existing post's single skill into a skill tag, backfills the like/comment counters, and then drops the old `posts.skill_id` column.
 
 **Engagement counters:** `posts.like_count` / `comment_count` are changed only by single atomic `UPDATE`s. A like is inserted with `INSERT ... ON CONFLICT DO NOTHING` and the counter moves only when that statement really inserted a row, so repeated or simultaneous likes cannot double count. Deleting a comment first takes a real `FOR UPDATE` lock on its row (a native query, see `CommentRepositoryContractTest` for why `@Lock` would not be enough on PostgreSQL), so replies added at the same moment cannot be missed by the count.
 

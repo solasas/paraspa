@@ -116,6 +116,10 @@ Validation errors: `status 400`, `error: "Validation Error"`, `message` = `"fiel
 | `SessionMode` | `ONLINE`, `OFFLINE` |
 | `RescheduleStatus` | `PENDING`, `ACCEPTED`, `REJECTED` |
 | `DayOfWeek` | `MONDAY` … `SUNDAY` |
+| `FollowStatus` | `PENDING`, `ACCEPTED` |
+| `ReportTargetType` | `USER`, `POST`, `COMMENT` |
+| `ReportReason` | `SPAM`, `HARASSMENT`, `HATE_SPEECH`, `SEXUAL_CONTENT`, `VIOLENCE`, `MISINFORMATION`, `IMPERSONATION`, `OTHER` (`OTHER` needs `details`) |
+| `ReportStatus` | `OPEN`, `RESOLVED` |
 
 ---
 
@@ -379,24 +383,47 @@ UI: show Accept/Reject only when `status === "PENDING"` and `requestedBy.id !== 
 | Method | Path | Body / query | Success |
 |--------|------|--------------|---------|
 | PUT | `/api/users/{userId}/follow` | none. **Idempotent** | 200 `FollowResponse` |
-| DELETE | `/api/users/{userId}/follow` | none. **Idempotent** | **204** |
-| GET | `/api/users/{userId}/followers` | people who follow `userId`, newest first. `page`, `size` | 200 `UserResponse[]` |
-| GET | `/api/users/{userId}/following` | people `userId` follows, newest first. `page`, `size` | 200 `UserResponse[]` |
+| DELETE | `/api/users/{userId}/follow` | none. **Idempotent**; also cancels a pending request | **204** |
+| GET | `/api/users/{userId}/followers` | accepted followers, newest first. `page`, `size` | 200 `UserResponse[]` |
+| GET | `/api/users/{userId}/following` | accepted, newest first. `page`, `size` | 200 `UserResponse[]` |
 | GET | `/api/users/{userId}/follow-status` | | 200 `FollowStatusResponse` |
+| GET | `/api/follow-requests` | pending requests to **my** private account. `page`, `size` | 200 `FollowRequestResponse[]` |
+| PUT | `/api/follow-requests/{id}/accept` | only the account owner | **204** |
+| PUT | `/api/follow-requests/{id}/reject` | only the account owner | **204** |
 
 ```json
 // FollowResponse
-{ "id": 1, "follower": { /* UserResponse */ }, "following": { /* UserResponse */ }, "createdAt": "…" }
+{ "id": 1, "follower": { /* UserResponse */ }, "following": { /* UserResponse */ }, "status": "ACCEPTED", "createdAt": "…" }
 
 // FollowStatusResponse
-{ "userId": 2, "isFollowedByMe": true, "isFollowingMe": false, "followersCount": 5, "followingCount": 3 }
+{ "userId": 2, "isFollowedByMe": true, "isFollowRequestedByMe": false, "isFollowingMe": false, "followersCount": 5, "followingCount": 3 }
+
+// FollowRequestResponse
+{ "id": 9, "requester": { /* UserResponse */ }, "createdAt": "…" }
 ```
 - The follower is always the logged-in user (from the JWT).
-- `PUT` is idempotent: following someone you already follow is **not an error**. It returns **200** with the existing follow, so a double tap or a retry after a timeout is safe. `DELETE` is idempotent too: unfollowing someone you don't follow is a **204** no-op. Both therefore never need a 409/404 special case in the UI.
-- Following yourself → **400** `You cannot follow yourself`. A user id that doesn't exist → **404** `User not found` (for `PUT`, `DELETE`, both lists and `follow-status`).
-- Lists follow the standard [pagination](#pagination) rules (default `size` 20, max 100; a page past the end is `[]`). Users in these lists have `email: null`.
-- `isFollowedByMe` = I follow them; `isFollowingMe` = they follow me. Show **Follow back** when `isFollowingMe && !isFollowedByMe`, and a mutual badge when both are true. The JSON keys really are `isFollowedByMe` / `isFollowingMe` (with the `is` prefix), the same style as `isMutual` on matches.
-- **Changed from the first version of this API:** `POST /follow` is gone (it now returns **405**; use `PUT`), `follow-stats` is renamed `follow-status` (the old URL is a 404), `followedByMe` is now `isFollowedByMe`, and the lists were not paginated before.
+- **Private accounts:** if the target has `isPrivate: true`, `PUT /follow` returns `status: "PENDING"` and the owner is notified (`FOLLOW_REQUEST`). Show **Requested** (tap to cancel with `DELETE`) when `isFollowRequestedByMe`; `isFollowedByMe` is true only once `ACCEPTED`. Accepting notifies the requester (`FOLLOW_ACCEPTED`). Counts and both lists contain accepted follows only.
+- `PUT` is idempotent: repeating it returns **200** with the existing follow (whatever its status). `DELETE` is a **204** no-op when there is nothing to remove.
+- Following yourself → **400**. Unknown user, or a user who blocked you or whom you blocked → **404** `User not found` (if *you* blocked them: **400** `You have blocked this user. Unblock them first.`).
+- Lists follow the standard [pagination](#pagination) rules. Users in these lists have `email: null`. The followers/following lists of a private account you do not follow → **403** `This account is private`.
+- `isFollowedByMe` = I follow them; `isFollowingMe` = they follow me. Show **Follow back** when `isFollowingMe && !isFollowedByMe`. The JSON keys really are `isFollowedByMe` / `isFollowRequestedByMe` / `isFollowingMe`.
+- **Changed:** `FollowResponse` gained `status`; `FollowStatusResponse` gained `isFollowRequestedByMe`.
+
+### 4.13a Safety: block, report, private accounts, admin
+
+| Method | Path | Notes | Success |
+|--------|------|-------|---------|
+| PUT | `/api/users/{userId}/block` | **Idempotent.** Also removes follows/requests both ways and clears notifications between you two | **204** |
+| DELETE | `/api/users/{userId}/block` | **Idempotent.** Does not restore follows | **204** |
+| GET | `/api/blocks` | people **I** blocked. `page`, `size` | 200 `UserResponse[]` |
+| POST | `/api/reports` | `{ "targetType": "USER\|POST\|COMMENT", "targetId": 5, "reason": "SPAM", "details": "optional, max 1000" }` | **201** `ReportResponse` |
+| GET | `/api/admin/reports` | **admin only.** `status=OPEN` (default) or `RESOLVED`, `cursor`, `size` | 200 `{ items: ReportResponse[], nextCursor }` |
+| PUT | `/api/admin/reports/{id}/resolve` | **admin only.** Optional body `{ "note": "…" }` | 200 `ReportResponse` |
+
+- **Blocking is two-way and silent.** After A blocks B, neither sees the other in search, matches, suggestions, explore, feed, post lists, comments, likes or follower lists; `GET /users/{id}`, `/users/{id}/posts` and `/posts/{id}` for the other person are **404**. Blocked people cannot follow, message or start an exchange with each other (the blocked person gets 404, the blocker 400 "unblock first"). Do not tell the blocked person they were blocked; to them the user just vanished.
+- **Reports:** 409 `You have already reported this` on a repeat; 400 for reporting yourself or your own post/comment, or `OTHER` without `details`; 404 if the target does not exist. Always show a confirmation, there is no undo.
+- **Private accounts:** `isPrivate` (boolean) is on `UserResponse`, `ProfileResponse` and the public profile; change it with `PUT /api/profile/me` `{ "isPrivate": true }`. The public profile also has `isFollowRequestedByMe`. For someone you do not follow (accepted): `GET /posts/{id}` → **404**, `GET /users/{id}/posts` → **403** `This account is private` (show a lock screen), and their posts are absent from every list. Going public accepts all waiting requests.
+- **Admin:** `ReportResponse` = `{ id, targetType, targetId, reason, details, status, createdAt, reporter, targetPreview, reportsOnTarget, resolvedAt, resolvedBy, resolutionNote }`. `targetPreview` is the user's name, a post/comment excerpt, `[image post]` or `[deleted]`. A non-admin gets **403** `You do not have permission to do this`. Resolving twice → 400. Admins can also `DELETE /api/posts/{id}` for any post. Admin role is set in the database (`UPDATE users SET role = 'ADMIN' …`), not through the API; your own role is not in the profile response, so a client should simply try the admin screens and handle 403.
 
 ### 4.14 Posts, likes and comments
 
@@ -565,6 +592,8 @@ Every item in `/feed` and `/explore` is a full `PostResponse` (see 4.14): `autho
 | `type` | Who gets it | Text for the UI | `targetType` / `targetId` | Open |
 |--------|-------------|-----------------|---------------------------|------|
 | `FOLLOW` | the person followed | "{actor} started following you" | `USER` / the follower's id | profile `GET /users/{id}` |
+| `FOLLOW_REQUEST` | the private account's owner | "{actor} wants to follow you" | `USER` / the requester's id | follow requests screen (`GET /follow-requests`) |
+| `FOLLOW_ACCEPTED` | the requester | "{actor} accepted your follow request" | `USER` / the owner's id | profile `GET /users/{id}` |
 | `LIKE` | the post's author | "{actor} liked your post" | `POST` / post id | post `GET /posts/{id}` |
 | `COMMENT` | the post's author | "{actor} commented on your post" | `POST` / post id | the post's comments |
 | `REPLY` | the author of the comment replied to | "{actor} replied to your comment" | `POST` / post id | the post's comments |
@@ -687,6 +716,8 @@ How to handle it:
 - No notification settings (mute a type, push notifications to the phone when the app is closed): notifications are in-app only, delivered over the open WebSocket or fetched from the list.
 
 **Behaviors that surprise**
+- Lists of posts, comments, likes, matches, search and suggestions silently leave out blocked people (both ways) and private accounts you are not accepted by, so a page can hold fewer items than expected only at the very end; `commentCount` / `likeCount` on a post are totals and still include hidden people.
+- A malformed JSON body or an unknown enum value (for example a wrong report `reason`) is **400**, not 500.
 - Wrong credentials and every business-rule failure are **400**, not 401/403. Show `message` from the body.
 - Reading an exchange/session you don't belong to is **404**, not 403.
 - `POST /sessions/{id}/ratings` returns 404 for non-participants. Still hide the rate button unless `me` is the exchange's requester or receiver.
