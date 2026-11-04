@@ -24,7 +24,7 @@ paraspa lets people trade skills: "I teach guitar, I want to learn Python."
 | 11 | **Ratings** | After a session is completed, each participant rates the other 1–5 with optional review. Rating summary + star breakdown per user. |
 | 12 | **Chat** | 1-to-1 messaging: REST for history/conversation list/unread count, STOMP WebSocket for live delivery. |
 | 13 | **Follows** | Follow / unfollow users (idempotent); paginated follower and following lists; follow status in both directions; follower/following counts on the public profile. |
-| 14 | **Skill posts & feed** | Post text about a skill. Explore all posts or a feed of people I follow (+ my own), optionally filtered by skill. Like and comment. |
+| 14 | **Posts & feed** | Post text and/or up to 4 images, tagged with up to 3 skills. Explore all posts or a feed of people I follow (+ my own), optionally filtered by skill tag. A user's posts are cursor-paginated. Like and comment. |
 | 15 | **Public profiles & avatars** | `GET /users/{id}` returns another user's public profile (never the email). Users upload a profile picture (JPG/PNG/WebP, ≤ 2 MB). |
 
 ---
@@ -55,14 +55,15 @@ Most list endpoints take `?page=0&size=20` (`page` is zero-based, **default size
 
 The response is still a plain JSON array. There is no total count: keep requesting `page + 1` until a page comes back with **fewer than `size`** items (or empty).
 
-Paginated today: `GET /users/search`, `GET /exchanges`, `/exchanges/sent`, `/exchanges/received`, `GET /messages/conversations/{userId}`, `GET /users/{id}/followers`, `GET /users/{id}/following`, `GET /posts`, `/posts/feed`, `/users/{id}/posts`.
+Paginated today: `GET /users/search`, `GET /exchanges`, `/exchanges/sent`, `/exchanges/received`, `GET /messages/conversations/{userId}`, `GET /users/{id}/followers`, `GET /users/{id}/following`, `GET /posts`, `/posts/feed`.
+**Cursor-paginated** (envelope below): `GET /users/{id}/posts`.
 **Not** paginated yet: matches, skills, comments, ratings, `GET /messages/conversations` (inbox list), sessions.
 
-**Cursor pagination (for future list endpoints).** New endpoints will return this envelope instead of an array:
+**Cursor pagination.** New list endpoints, and `GET /users/{id}/posts`, return this envelope instead of an array:
 ```json
 { "items": [ /* … */ ], "nextCursor": "MTIz" }
 ```
-Request the next page with `?cursor=<nextCursor>&size=20`. `nextCursor` is `null` on the last page. Treat the cursor as an opaque string; a malformed one is a 400 `Invalid cursor`. No current endpoint uses it yet.
+Request the next page with `?cursor=<nextCursor>&size=20`. `nextCursor` is `null` on the last page. Treat the cursor as an opaque string and never build one yourself; a malformed one is a 400 `Invalid cursor`. There is no `page` parameter: you can only move forward from the cursor you were given. Unlike page numbers, a cursor stays correct when new items arrive while you are scrolling (nothing is repeated or skipped). `size` follows the usual rules (default 20, max 100; otherwise 400).
 
 ### Files (avatars)
 
@@ -398,12 +399,12 @@ UI: show Accept/Reject only when `status === "PENDING"` and `requestedBy.id !== 
 
 | Method | Path | Body / query | Success |
 |--------|------|--------------|---------|
-| POST | `/api/posts` | `{ skillId, content (required, ≤ 2000 chars) }` | **201** `PostResponse` |
-| GET | `/api/posts` | explore: all posts, newest first. Query: `skillId?`, `page` (default 0), `size` (default 20, max 50) | 200 `PostResponse[]` |
+| POST | `/api/posts` | **JSON** `{ content?, skillIds? }` (text-only) **or multipart** (with images), see below | **201** `PostResponse` |
+| GET | `/api/posts` | explore: all posts, newest first. Query: `skillId?`, `page`, `size` | 200 `PostResponse[]` |
 | GET | `/api/posts/feed` | posts by people I follow **plus my own**. Same query params | 200 `PostResponse[]` |
 | GET | `/api/posts/{postId}` | | 200 `PostResponse` |
 | DELETE | `/api/posts/{postId}` | author only | **204** |
-| GET | `/api/users/{userId}/posts` | one user's posts. Query: `page`, `size` | 200 `PostResponse[]` |
+| GET | `/api/users/{userId}/posts` | one user's posts, newest first. Query: `cursor?`, `size` | 200 `{ items: PostResponse[], nextCursor }` |
 | POST | `/api/posts/{postId}/like` | none | **201** `PostResponse` (updated counts) |
 | DELETE | `/api/posts/{postId}/like` | | **204** |
 | POST | `/api/posts/{postId}/comments` | `{ content (required, ≤ 1000 chars) }` | **201** `CommentResponse` |
@@ -412,20 +413,47 @@ UI: show Accept/Reject only when `status === "PENDING"` and `requestedBy.id !== 
 
 ```json
 // PostResponse
-{ "id": 10, "author": { /* UserResponse */ }, "skill": { /* SkillResponse */ },
-  "content": "Day 30 of learning guitar scales", "likeCount": 4, "commentCount": 2,
-  "likedByMe": false, "createdAt": "…" }
+{ "id": 10, "author": { /* UserResponse, email is null */ },
+  "content": "Day 30 of learning guitar scales",
+  "skills": [ { "id": 1, "name": "Guitar", "category": "MUSIC", "description": "…" } ],
+  "media": [ { "url": "/files/posts/3-9c1e….jpg", "position": 0 },
+             { "url": "/files/posts/3-41ab….png", "position": 1 } ],
+  "likeCount": 4, "commentCount": 2, "likedByMe": false, "createdAt": "2026-11-04T12:00:00" }
+
+// GET /api/users/{id}/posts
+{ "items": [ /* PostResponse, newest first */ ], "nextCursor": "MjAyNi0xMS0wNFQxMjowMHw3" }
 
 // CommentResponse
 { "id": 7, "postId": 10, "author": { /* UserResponse */ }, "content": "Nice!", "createdAt": "…" }
 ```
-- Pagination: `page` is zero-based; `page < 0`, `size < 1` or `size > 100` → 400. Stop paging when a page returns fewer than `size` items. See [Pagination](#pagination).
-- `content` is trimmed server-side; blank content → 400 `content: Content is required; `. Unknown `skillId` on create → 404 `Skill not found`.
+
+**Creating a post.** A post needs **text and/or at least one image**; skill tags are optional.
+
+| Rule | Limit | Error (all 400 unless noted) |
+|------|-------|------------------------------|
+| text or image | at least one (blank text counts as none) | `A post needs text or at least one image` |
+| text length | ≤ 2000 characters (trimmed) | `Content must be at most 2000 characters` |
+| images | ≤ **4** | `A post can have at most 4 images` |
+| image size | ≤ **2 MB each** (whole request ≤ 10 MB) | `Each image must be at most 2 MB` / `Upload too large: …` |
+| image type | JPG, PNG or WebP, checked by the file's bytes, not its name | `Images must be JPG, PNG or WebP` |
+| skill tags | ≤ **3** distinct ids; repeats are ignored | `A post can have at most 3 skill tags` |
+| unknown skill id | | **404** `Skill not found` |
+
+- **Text only → JSON:** `Content-Type: application/json`, body `{ "content": "…", "skillIds": [1, 2] }`.
+- **With images → multipart:** `Content-Type: multipart/form-data` (let your HTTP client set the boundary), with the text in a part `content`, one `skillIds` part **per tag** (repeat the field), and one `images` part **per image** (repeat the field; the order you send them is the display order). Any other content type → **415**. Flutter example: `request.fields['content'] = text; request.files.add(await http.MultipartFile.fromPath('images', path));` for each image; add `skillIds` as repeated fields (build the multipart body with a list of `MapEntry`s, since `fields` is a plain map).
+- Validation is all-or-nothing: if any image is rejected, nothing is saved or stored. Empty file parts (some clients send one when no file is chosen) are ignored.
+- Image-only posts have `"content": null`: render the post without a text block.
+- `media[].position` is 0-based and already sorted; `url` is a root-relative path, prefix it with the base URL (see [Files](#files-avatars)). Image files are public, like avatars.
+
+**Behaviour**
+- `likeCount` and `commentCount` come straight from the post (no extra work for the server per request); they change by exactly one per like/unlike/comment/delete-comment, even when many people act at once.
 - Liking twice → **409** `You have already liked this post`. Unliking a post you haven't liked → 404.
 - Deleting someone else's post or comment returns **404**, not 403. Show the delete button only when `author.id === me.id`.
-- Deleting a post also deletes its likes and comments.
-- Posts are visible to every logged-in user (there are no private posts). `skillId` for the filter comes from `GET /api/skills`.
-- A `skillId` that matches no posts (or doesn't exist) just returns `[]`.
+- Deleting a post also deletes its likes, comments, skill tags, image rows **and the image files** (those URLs then return 404).
+- `GET /api/users/{id}/posts`: first page without `cursor`; keep sending the returned `nextCursor` until it is `null`. An unknown user → 404. Because the cursor is a position, not a page number, posts created or deleted while you scroll never cause duplicates or gaps.
+- `GET /api/posts` and `/api/posts/feed` still use `page`/`size`; their `skillId` filter now matches **any** of a post's tags.
+- Posts are visible to every logged-in user (there are no private posts). `skillId` values come from `GET /api/skills`.
+- **Changed from the first version of this API:** the single required `skillId` is now an optional `skillIds` list (and `PostResponse.skill` is now `skills[]`); `content` is optional when images are attached and can be `null` in responses; `PostResponse` gained `media`; and `GET /users/{id}/posts` now returns the cursor envelope instead of an array and ignores `page`. Existing posts keep their old skill as a single tag.
 
 ### 4.15 Public profile
 
@@ -513,10 +541,10 @@ Keep unread badges in sync: increment on incoming messages where `sender.id !== 
 | Session detail | `GET /sessions/{id}`, `PUT …/complete`, `PUT …/cancel`, reschedule endpoints, `POST /sessions/{id}/ratings` |
 | Inbox | `GET /messages/conversations`, `GET /messages/unread-count`, WebSocket |
 | Chat thread | `GET /messages/conversations/{id}`, WebSocket `/app/chat.send` |
-| Home feed | `GET /posts/feed[?skillId&page&size]`, `POST /posts`, `POST/DELETE /posts/{id}/like` |
+| Home feed | `GET /posts/feed[?skillId&page&size]`, `POST /posts` (JSON, or multipart with images), `POST/DELETE /posts/{id}/like` |
 | Explore / by skill | `GET /posts[?skillId&page&size]` |
 | Post detail | `GET /posts/{id}`, `GET/POST /posts/{id}/comments`, `DELETE /posts/{id}/comments/{commentId}`, `DELETE /posts/{id}` |
-| Follow lists / profile header | `GET /users/{id}/follow-status`, `/users/{id}/followers`, `/users/{id}/following`, `PUT/DELETE /users/{id}/follow`, `GET /users/{id}/posts` |
+| Follow lists / profile header | `GET /users/{id}/follow-status`, `/users/{id}/followers`, `/users/{id}/following`, `PUT/DELETE /users/{id}/follow`, `GET /users/{id}/posts[?cursor&size]` (cursor-paginated: profile post grid / infinite scroll) |
 
 ---
 
@@ -527,7 +555,7 @@ Keep unread badges in sync: increment on incoming messages where `sender.id !== 
 - No token refresh, no logout, no password reset / email verification.
 - No notifications endpoint; poll or use the chat socket for message badges.
 - Pagination is not universal: see the list in [Pagination](#pagination). Endpoints not on that list return everything.
-- No delete/edit for exchanges, sessions, messages, ratings. Posts can be deleted but not edited; comments likewise.
+- No delete/edit for exchanges, sessions, messages, ratings. Posts can be deleted but not edited (no changing text, tags or images); comments likewise.
 - No notifications for follows, likes or comments.
 
 **Behaviors that surprise**
@@ -535,7 +563,7 @@ Keep unread badges in sync: increment on incoming messages where `sender.id !== 
 - Reading an exchange/session you don't belong to is **404**, not 403.
 - `POST /sessions/{id}/ratings` returns 404 for non-participants. Still hide the rate button unless `me` is the exchange's requester or receiver.
 - Past dates are rejected (400) for new sessions and reschedule proposals; `durationMinutes` must be > 0.
-- Avatars are `multipart/form-data` (don't send JSON), and `GET /files/**` is public.
+- Avatars and post images are `multipart/form-data` (don't send JSON for those), and `GET /files/**` is public.
 - Message history pages count back from the newest message (page 0 = latest), unlike the other lists.
 - `isMutual` / `iCanTeachThem` are explicit `@JsonProperty` names; use exactly `isMutual` and `iCanTeachThem`.
 - `GET /messages/unread-count` returns a raw number, not an object.
