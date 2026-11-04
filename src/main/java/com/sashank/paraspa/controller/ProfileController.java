@@ -13,8 +13,10 @@ import com.sashank.paraspa.service.UserSkillService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 
 @RestController
@@ -41,6 +43,14 @@ public class ProfileController {
             @RequestAttribute("userId") Long userId,
             @Valid @RequestBody UpdateProfileRequest request) {
         ProfileResponse profile = userService.updateProfile(userId, request);
+        return ResponseEntity.ok(profile);
+    }
+
+    @PutMapping(value = "/me/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ProfileResponse> updateAvatar(
+            @RequestAttribute("userId") Long userId,
+            @RequestPart("file") MultipartFile file) {
+        ProfileResponse profile = userService.updateAvatar(userId, file);
         return ResponseEntity.ok(profile);
     }
 

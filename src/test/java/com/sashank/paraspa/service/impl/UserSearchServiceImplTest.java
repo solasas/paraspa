@@ -1,5 +1,8 @@
 package com.sashank.paraspa.service.impl;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import com.sashank.paraspa.exception.BadRequestException;
 import com.sashank.paraspa.dto.response.UserResponse;
 import com.sashank.paraspa.entity.Skill;
 import com.sashank.paraspa.entity.User;
@@ -169,5 +172,48 @@ class UserSearchServiceImplTest {
 
         assertThat(results).hasSize(1);
         assertThat(results.get(0).getEmail()).isNull();
+    }
+
+
+    private void stubUsers(int count) {
+        java.util.List<User> users = new java.util.ArrayList<>();
+        // deliberately unordered so the test proves the service sorts by id
+        for (int i = count; i >= 1; i--) {
+            users.add(User.builder().id((long) i + 1).build());
+        }
+        when(userRepository.findAll()).thenReturn(users);
+        when(ratingRepository.getAverageRatingByUserId(anyLong())).thenReturn(null);
+        when(ratingRepository.countByRatedToId(anyLong())).thenReturn(0L);
+        when(dtoMapper.toUserResponseWithRatings(any(User.class), any(), any())).thenAnswer(invocation -> {
+            User u = invocation.getArgument(0);
+            return UserResponse.builder().id(u.getId()).build();
+        });
+    }
+
+    @Test
+    void searchUsers_shouldReturnStablePagesOrderedById() {
+        stubUsers(25);
+
+        List<UserResponse> firstPage = userSearchService.searchUsers(1L, null, null, null, null, null, 0, 10);
+        List<UserResponse> lastPage = userSearchService.searchUsers(1L, null, null, null, null, null, 2, 10);
+
+        assertThat(firstPage).extracting(UserResponse::getId)
+                .containsExactly(2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L, 11L);
+        assertThat(lastPage).extracting(UserResponse::getId).containsExactly(22L, 23L, 24L, 25L, 26L);
+    }
+
+    @Test
+    void searchUsers_shouldReturnEmptyPagePastTheEnd() {
+        stubUsers(3);
+
+        assertThat(userSearchService.searchUsers(1L, null, null, null, null, null, 5, 20)).isEmpty();
+    }
+
+    @Test
+    void searchUsers_shouldRejectInvalidPaging() {
+        assertThatThrownBy(() -> userSearchService.searchUsers(1L, null, null, null, null, null, 0, 101))
+                .isInstanceOf(com.sashank.paraspa.exception.BadRequestException.class);
+        assertThatThrownBy(() -> userSearchService.searchUsers(1L, null, null, null, null, null, -1, 20))
+                .isInstanceOf(com.sashank.paraspa.exception.BadRequestException.class);
     }
 }

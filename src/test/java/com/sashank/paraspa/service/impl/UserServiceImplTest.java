@@ -7,6 +7,7 @@ import com.sashank.paraspa.exception.ResourceNotFoundException;
 import com.sashank.paraspa.repository.RatingRepository;
 import com.sashank.paraspa.repository.UserRepository;
 import com.sashank.paraspa.repository.UserSkillRepository;
+import com.sashank.paraspa.storage.StorageService;
 import com.sashank.paraspa.util.DtoMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,6 +40,9 @@ class UserServiceImplTest {
 
     @Mock
     private PasswordEncoder passwordEncoder;
+
+    @Mock
+    private StorageService storageService;
 
     @Mock
     private DtoMapper dtoMapper;
@@ -129,5 +133,130 @@ class UserServiceImplTest {
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(captor.capture());
         assertThat(captor.getValue().getPassword()).isEqualTo(newEncodedHash);
+    }
+
+
+    private static final byte[] PNG_BYTES = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0};
+
+    private void stubProfileLookups(Long userId, User user) {
+        when(userSkillRepository.findByUserIdAndType(any(), any())).thenReturn(java.util.List.of());
+        when(ratingRepository.getAverageRatingByUserId(userId)).thenReturn(null);
+        when(ratingRepository.countByRatedToId(userId)).thenReturn(0L);
+        when(dtoMapper.toUserSkillResponseList(any())).thenReturn(java.util.List.of());
+    }
+
+    @Test
+    void updateAvatar_shouldThrowBadRequestException_whenFileMissing() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(User.builder().id(1L).build()));
+
+        assertThatThrownBy(() -> userService.updateAvatar(1L,
+                new org.springframework.mock.web.MockMultipartFile("file", new byte[0])))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Avatar file is required");
+
+        verify(storageService, never()).store(any(), any(), any());
+    }
+
+    @Test
+    void updateAvatar_shouldThrowBadRequestException_whenLargerThanTwoMegabytes() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(User.builder().id(1L).build()));
+        byte[] tooBig = new byte[(int) UserServiceImpl.MAX_AVATAR_BYTES + 1];
+        System.arraycopy(PNG_BYTES, 0, tooBig, 0, PNG_BYTES.length);
+
+        assertThatThrownBy(() -> userService.updateAvatar(1L,
+                new org.springframework.mock.web.MockMultipartFile("file", "a.png", "image/png", tooBig)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Avatar must be at most 2 MB");
+
+        verify(storageService, never()).store(any(), any(), any());
+    }
+
+    @Test
+    void updateAvatar_shouldAcceptExactlyTwoMegabytes() {
+        Long userId = 1L;
+        User user = User.builder().id(userId).build();
+        byte[] exactly = new byte[(int) UserServiceImpl.MAX_AVATAR_BYTES];
+        System.arraycopy(PNG_BYTES, 0, exactly, 0, PNG_BYTES.length);
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(storageService.store(any(), any(), any())).thenReturn("/files/avatars/x.png");
+        stubProfileLookups(userId, user);
+
+        userService.updateAvatar(userId,
+                new org.springframework.mock.web.MockMultipartFile("file", "a.png", "image/png", exactly));
+
+        verify(storageService).store(any(), any(), any());
+    }
+
+    @Test
+    void updateAvatar_shouldRejectNonImageEvenWhenClientClaimsImageType() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(User.builder().id(1L).build()));
+        byte[] html = "<html><script>alert(1)</script></html>".getBytes();
+
+        assertThatThrownBy(() -> userService.updateAvatar(1L,
+                new org.springframework.mock.web.MockMultipartFile("file", "evil.png", "image/png", html)))
+                .isInstanceOf(BadRequestException.class)
+                .hasMessage("Avatar must be a JPG, PNG or WebP image");
+
+        verify(storageService, never()).store(any(), any(), any());
+    }
+
+    @Test
+    void updateAvatar_shouldRejectGif() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(User.builder().id(1L).build()));
+
+        assertThatThrownBy(() -> userService.updateAvatar(1L,
+                new org.springframework.mock.web.MockMultipartFile("file", "a.gif", "image/gif", "GIF89a......".getBytes())))
+                .isInstanceOf(BadRequestException.class);
+    }
+
+    @Test
+    void updateAvatar_shouldStoreFileUnderUserScopedNameWithDetectedExtension() {
+        Long userId = 7L;
+        User user = User.builder().id(userId).build();
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(storageService.store(any(), any(), any())).thenReturn("/files/avatars/7-new.png");
+        stubProfileLookups(userId, user);
+
+        // declared as jpeg but really a PNG: the detected type wins for the extension
+        userService.updateAvatar(userId,
+                new org.springframework.mock.web.MockMultipartFile("file", "photo.jpg", "image/jpeg", PNG_BYTES));
+
+        ArgumentCaptor<String> filename = ArgumentCaptor.forClass(String.class);
+        verify(storageService).store(org.mockito.ArgumentMatchers.eq("avatars"), filename.capture(), any());
+        assertThat(filename.getValue()).matches("7-[0-9a-f-]{36}\\.png");
+
+        ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(saved.capture());
+        assertThat(saved.getValue().getAvatarUrl()).isEqualTo("/files/avatars/7-new.png");
+    }
+
+    @Test
+    void updateAvatar_shouldDeletePreviousAvatarAfterSavingNewOne() {
+        Long userId = 1L;
+        User user = User.builder().id(userId).avatarUrl("/files/avatars/old.png").build();
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(storageService.store(any(), any(), any())).thenReturn("/files/avatars/new.png");
+        stubProfileLookups(userId, user);
+
+        userService.updateAvatar(userId,
+                new org.springframework.mock.web.MockMultipartFile("file", "a.png", "image/png", PNG_BYTES));
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(userRepository, storageService);
+        order.verify(userRepository).save(user);
+        order.verify(storageService).delete("/files/avatars/old.png");
+    }
+
+    @Test
+    void updateAvatar_shouldNotTouchStorageWhenUserMissing() {
+        when(userRepository.findById(1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> userService.updateAvatar(1L,
+                new org.springframework.mock.web.MockMultipartFile("file", "a.png", "image/png", PNG_BYTES)))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(storageService, never()).store(any(), any(), any());
     }
 }

@@ -13,9 +13,11 @@ import com.sashank.paraspa.repository.UserRepository;
 import com.sashank.paraspa.repository.UserSkillRepository;
 import com.sashank.paraspa.service.UserSearchService;
 import com.sashank.paraspa.util.DtoMapper;
+import com.sashank.paraspa.util.PaginationUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -52,6 +54,18 @@ public class UserSearchServiceImpl implements UserSearchService {
                 .map(this::toUserResponseWithRatings)
                 .filter(userResponse -> minRating == null || userResponse.getAverageRating() >= minRating)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<UserResponse> searchUsers(Long currentUserId, String skillName, String city,
+                                           SkillLevel level, Double minRating, Boolean availableOnly,
+                                           int page, int size) {
+        PaginationUtil.toPageable(page, size);
+        List<UserResponse> sorted = searchUsers(currentUserId, skillName, city, level, minRating, availableOnly)
+                .stream()
+                .sorted(Comparator.comparing(UserResponse::getId))
+                .toList();
+        return PaginationUtil.slice(sorted, page, size);
     }
 
     private List<User> findCandidates(String skillName, SkillLevel level) {

@@ -13,15 +13,22 @@ import com.sashank.paraspa.repository.RatingRepository;
 import com.sashank.paraspa.repository.UserRepository;
 import com.sashank.paraspa.repository.UserSkillRepository;
 import com.sashank.paraspa.service.UserService;
+import com.sashank.paraspa.storage.StorageService;
+import com.sashank.paraspa.util.ImageFormat;
 import com.sashank.paraspa.util.DtoMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 public class UserServiceImpl implements UserService {
+
+    public static final long MAX_AVATAR_BYTES = 2L * 1024 * 1024;
 
     @Autowired
     private UserRepository userRepository;
@@ -34,6 +41,9 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private StorageService storageService;
 
     @Autowired
     private DtoMapper dtoMapper;
@@ -60,6 +70,7 @@ public class UserServiceImpl implements UserService {
                 .email(user.getEmail())
                 .bio(user.getBio())
                 .city(user.getCity())
+                .avatarUrl(user.getAvatarUrl())
                 .teachSkills(dtoMapper.toUserSkillResponseList(teachSkills))
                 .learnSkills(dtoMapper.toUserSkillResponseList(learnSkills))
                 .averageRating(avgRating != null ? avgRating : 0.0)
@@ -84,6 +95,41 @@ public class UserServiceImpl implements UserService {
         user = userRepository.save(user);
 
         return getProfile(user.getId());
+    }
+
+    @Override
+    public ProfileResponse updateAvatar(Long userId, MultipartFile file) {
+        User user = getUserById(userId);
+
+        if (file == null || file.isEmpty()) {
+            throw new BadRequestException("Avatar file is required");
+        }
+        if (file.getSize() > MAX_AVATAR_BYTES) {
+            throw new BadRequestException("Avatar must be at most 2 MB");
+        }
+
+        byte[] content;
+        try {
+            content = file.getBytes();
+        } catch (IOException e) {
+            throw new BadRequestException("Could not read the uploaded file");
+        }
+
+        ImageFormat format = ImageFormat.detect(content)
+                .orElseThrow(() -> new BadRequestException("Avatar must be a JPG, PNG or WebP image"));
+
+        String filename = userId + "-" + UUID.randomUUID() + "." + format.getExtension();
+        String newUrl = storageService.store("avatars", filename, content);
+
+        String previousUrl = user.getAvatarUrl();
+        user.setAvatarUrl(newUrl);
+        userRepository.save(user);
+
+        if (previousUrl != null) {
+            storageService.delete(previousUrl);
+        }
+
+        return getProfile(userId);
     }
 
     @Override
