@@ -30,6 +30,9 @@ import static org.mockito.Mockito.when;
 class UserServiceImplTest {
 
     @Mock
+    private com.sashank.paraspa.service.RefreshTokenService refreshTokenService;
+
+    @Mock
     private UserRepository userRepository;
 
     @Mock
@@ -136,6 +139,7 @@ class UserServiceImplTest {
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(captor.capture());
         assertThat(captor.getValue().getPassword()).isEqualTo(newEncodedHash);
+        verify(refreshTokenService).revokeAll(userId);   // every other device is signed out
     }
 
 

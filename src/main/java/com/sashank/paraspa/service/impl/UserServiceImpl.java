@@ -12,6 +12,7 @@ import com.sashank.paraspa.exception.ResourceNotFoundException;
 import com.sashank.paraspa.repository.RatingRepository;
 import com.sashank.paraspa.repository.UserRepository;
 import com.sashank.paraspa.repository.UserSkillRepository;
+import com.sashank.paraspa.service.RefreshTokenService;
 import com.sashank.paraspa.service.UserService;
 import com.sashank.paraspa.storage.StorageService;
 import com.sashank.paraspa.util.ImageFormat;
@@ -46,6 +47,9 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private RefreshTokenService refreshTokenService;
 
     @Autowired
     private StorageService storageService;
@@ -149,6 +153,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
     public void changePassword(Long userId, ChangePasswordRequest request) {
         User user = getUserById(userId);
 
@@ -162,6 +167,8 @@ public class UserServiceImpl implements UserService {
 
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
+        // every other device is signed out: their refresh tokens stop working (access tokens expire within minutes)
+        refreshTokenService.revokeAll(userId);
     }
 }
 

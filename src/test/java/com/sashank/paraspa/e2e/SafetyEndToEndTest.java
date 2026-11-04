@@ -62,6 +62,8 @@ class SafetyEndToEndTest {
 
     @BeforeEach
     void portableInserts() {
+        // the JDK's default HTTP client throws instead of returning a 401 that carries WWW-Authenticate
+        rest.getRestTemplate().setRequestFactory(new org.springframework.http.client.JdkClientHttpRequestFactory());
         doAnswer(i -> jdbc.update(
                 "INSERT INTO post_likes (post_id, user_id, created_at) SELECT ?, ?, ? WHERE NOT EXISTS "
                         + "(SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?)",
@@ -486,6 +488,7 @@ class SafetyEndToEndTest {
     @Test
     void tokenOfADeletedUserIsRejected() {
         Person ghost = register("Ghost");
+        jdbc.update("DELETE FROM refresh_tokens WHERE user_id = ?", ghost.id());
         jdbc.update("DELETE FROM users WHERE id = ?", ghost.id());
 
         assertThat(status(get("/api/blocks", ghost))).isIn(HttpStatus.UNAUTHORIZED, HttpStatus.FORBIDDEN);

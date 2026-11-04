@@ -34,3 +34,8 @@ build/
 
 ### Uploaded files ###
 uploads/
+
+### Secrets (never commit) ###
+.env
+.env.*
+!.env.example

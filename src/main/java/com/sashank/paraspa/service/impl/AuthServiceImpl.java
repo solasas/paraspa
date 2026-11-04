@@ -6,9 +6,12 @@ import com.sashank.paraspa.dto.response.AuthResponse;
 import com.sashank.paraspa.entity.User;
 import com.sashank.paraspa.exception.AlreadyExistsException;
 import com.sashank.paraspa.exception.BadRequestException;
+import com.sashank.paraspa.exception.UnauthorizedException;
 import com.sashank.paraspa.repository.UserRepository;
 import com.sashank.paraspa.security.JwtTokenProvider;
 import com.sashank.paraspa.service.AuthService;
+import com.sashank.paraspa.service.RefreshTokenService;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -25,7 +28,11 @@ public class AuthServiceImpl implements AuthService {
     @Autowired
     private JwtTokenProvider jwtTokenProvider;
 
+    @Autowired
+    private RefreshTokenService refreshTokenService;
+
     @Override
+    @Transactional
     public AuthResponse register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new AlreadyExistsException("Email already registered");
@@ -39,18 +46,11 @@ public class AuthServiceImpl implements AuthService {
 
         user = userRepository.save(user);
 
-        String token = jwtTokenProvider.generateToken(user.getEmail(), user.getId());
-
-        return AuthResponse.builder()
-                .token(token)
-                .type("Bearer")
-                .id(user.getId())
-                .name(user.getName())
-                .email(user.getEmail())
-                .build();
+        return issueTokens(user);
     }
 
     @Override
+    @Transactional
     public AuthResponse login(LoginRequest request) {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new BadRequestException("Invalid email or password"));
@@ -59,10 +59,25 @@ public class AuthServiceImpl implements AuthService {
             throw new BadRequestException("Invalid email or password");
         }
 
-        String token = jwtTokenProvider.generateToken(user.getEmail(), user.getId());
+        return issueTokens(user);
+    }
 
+    @Override
+    @Transactional(noRollbackFor = UnauthorizedException.class)   // reuse detection revokes sessions before it throws
+    public AuthResponse refresh(String refreshToken) {
+        return issueTokens(refreshTokenService.consume(refreshToken));
+    }
+
+    @Override
+    public void logout(String refreshToken) {
+        refreshTokenService.revoke(refreshToken);
+    }
+
+    private AuthResponse issueTokens(User user) {
         return AuthResponse.builder()
-                .token(token)
+                .token(jwtTokenProvider.generateToken(user.getEmail(), user.getId()))
+                .refreshToken(refreshTokenService.issue(user))
+                .expiresIn(jwtTokenProvider.getAccessTokenSeconds())
                 .type("Bearer")
                 .id(user.getId())
                 .name(user.getName())
@@ -70,4 +85,3 @@ public class AuthServiceImpl implements AuthService {
                 .build();
     }
 }
-

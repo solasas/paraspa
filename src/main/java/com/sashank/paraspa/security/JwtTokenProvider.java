@@ -4,6 +4,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
@@ -17,6 +18,19 @@ public class JwtTokenProvider {
 
     @Value("${jwt.expiration}")
     private long jwtExpirationMs;
+
+    /** Fail at startup, not at the first login, when the secret is unusable (HS512 needs at least 512 bits). */
+    @PostConstruct
+    void checkSecret() {
+        if (jwtSecret == null || jwtSecret.getBytes(StandardCharsets.UTF_8).length < 64) {
+            throw new IllegalStateException("JWT_SECRET must be at least 64 characters (512 bits). "
+                    + "Generate one with: openssl rand -base64 64");
+        }
+    }
+
+    public long getAccessTokenSeconds() {
+        return jwtExpirationMs / 1000;
+    }
 
     public String generateToken(String email, Long userId) {
         return Jwts.builder()

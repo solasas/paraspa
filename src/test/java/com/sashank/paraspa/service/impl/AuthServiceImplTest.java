@@ -30,6 +30,9 @@ import static org.mockito.Mockito.when;
 class AuthServiceImplTest {
 
     @Mock
+    private com.sashank.paraspa.service.RefreshTokenService refreshTokenService;
+
+    @Mock
     private UserRepository userRepository;
 
     @Mock
@@ -143,5 +146,73 @@ class AuthServiceImplTest {
         assertThat(response.getType()).isEqualTo("Bearer");
         assertThat(response.getId()).isEqualTo(user.getId());
         assertThat(response.getEmail()).isEqualTo(user.getEmail());
+    }
+
+    // ------------------------------------------------------------------ refresh tokens
+
+    private com.sashank.paraspa.entity.User user() {
+        return com.sashank.paraspa.entity.User.builder().id(7L).name("Jane").email("jane@example.com").password("hash").build();
+    }
+
+    @Test
+    void login_returnsAnAccessAndARefreshToken_andHowLongTheAccessTokenLives() {
+        com.sashank.paraspa.entity.User user = user();
+        when(userRepository.findByEmail("jane@example.com")).thenReturn(java.util.Optional.of(user));
+        when(passwordEncoder.matches("pw", "hash")).thenReturn(true);
+        when(jwtTokenProvider.generateToken("jane@example.com", 7L)).thenReturn("access");
+        when(jwtTokenProvider.getAccessTokenSeconds()).thenReturn(900L);
+        when(refreshTokenService.issue(user)).thenReturn("refresh");
+
+        var response = authService.login(com.sashank.paraspa.dto.request.LoginRequest.builder().email("jane@example.com").password("pw").build());
+
+        assertThat(response.getToken()).isEqualTo("access");
+        assertThat(response.getRefreshToken()).isEqualTo("refresh");
+        assertThat(response.getExpiresIn()).isEqualTo(900L);
+    }
+
+    @Test
+    void register_alsoReturnsARefreshToken() {
+        when(userRepository.existsByEmail("jane@example.com")).thenReturn(false);
+        when(passwordEncoder.encode("password123")).thenReturn("hash");
+        when(userRepository.save(any(com.sashank.paraspa.entity.User.class))).thenAnswer(i -> {
+            com.sashank.paraspa.entity.User u = i.getArgument(0);
+            u.setId(7L);
+            return u;
+        });
+        when(refreshTokenService.issue(any())).thenReturn("refresh");
+
+        var response = authService.register(RegisterRequest.builder().name("Jane").email("jane@example.com").password("password123").build());
+
+        assertThat(response.getRefreshToken()).isEqualTo("refresh");
+    }
+
+    @Test
+    void refresh_consumesTheOldTokenAndIssuesAWholeNewPair() {
+        com.sashank.paraspa.entity.User user = user();
+        when(refreshTokenService.consume("old")).thenReturn(user);
+        when(jwtTokenProvider.generateToken("jane@example.com", 7L)).thenReturn("new-access");
+        when(refreshTokenService.issue(user)).thenReturn("new-refresh");
+
+        var response = authService.refresh("old");
+
+        assertThat(response.getToken()).isEqualTo("new-access");
+        assertThat(response.getRefreshToken()).isEqualTo("new-refresh");
+        assertThat(response.getId()).isEqualTo(7L);
+    }
+
+    @Test
+    void refresh_withABadToken_issuesNothing() {
+        when(refreshTokenService.consume("bad")).thenThrow(new com.sashank.paraspa.exception.UnauthorizedException("Invalid or expired refresh token"));
+
+        assertThatThrownBy(() -> authService.refresh("bad")).isInstanceOf(com.sashank.paraspa.exception.UnauthorizedException.class);
+        verify(refreshTokenService, never()).issue(any());
+        verify(jwtTokenProvider, never()).generateToken(any(), any());
+    }
+
+    @Test
+    void logout_revokesTheRefreshToken() {
+        authService.logout("tok");
+
+        verify(refreshTokenService).revoke("tok");
     }
 }

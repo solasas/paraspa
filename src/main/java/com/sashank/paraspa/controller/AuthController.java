@@ -2,6 +2,7 @@ package com.sashank.paraspa.controller;
 
 import com.sashank.paraspa.dto.request.RegisterRequest;
 import com.sashank.paraspa.dto.request.LoginRequest;
+import com.sashank.paraspa.dto.request.RefreshTokenRequest;
 import com.sashank.paraspa.dto.response.AuthResponse;
 import com.sashank.paraspa.service.AuthService;
 import jakarta.validation.Valid;
@@ -28,5 +29,15 @@ public class AuthController {
         AuthResponse response = authService.login(request);
         return ResponseEntity.ok(response);
     }
-}
 
+    @PostMapping("/refresh")
+    public ResponseEntity<AuthResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return ResponseEntity.ok(authService.refresh(request.getRefreshToken()));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@Valid @RequestBody RefreshTokenRequest request) {
+        authService.logout(request.getRefreshToken());
+        return ResponseEntity.noContent().build();
+    }
+}
