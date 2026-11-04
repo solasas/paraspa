@@ -1,5 +1,7 @@
 # paraspa
 
+[![CI](https://github.com/solasas/paraspa/actions/workflows/ci.yml/badge.svg)](https://github.com/solasas/paraspa/actions/workflows/ci.yml)
+
 A community skill exchange platform: people list what they can teach and what they want to learn, get matched, swap skills, schedule sessions, chat, rate each other, follow people, and share skill posts.
 
 This repository is the **backend** (REST API + WebSocket chat), built with Spring Boot 3.2 and PostgreSQL.
@@ -17,7 +19,7 @@ git clone https://github.com/solasas/paraspa-mobileapp.git
 
 ## Features
 
-- **Accounts**: register and login with a JWT, edit profile (name, bio, city), change password
+- **Accounts**: register and login with a 15-minute JWT access token plus a rotating refresh token (`/api/auth/refresh`, `/api/auth/logout`), edit profile (name, bio, city), change password
 - **Skills**: shared skill catalog; each user lists skills to **teach** and **learn** with a level
 - **Availability**: weekly time slots, visible on any user's profile
 - **Matching & search**: find users who teach what you want to learn (mutual matches first); filter by skill, city, level, rating and availability
@@ -140,7 +142,7 @@ Full request and response details: [docs/FRONTEND-HANDOFF.md](docs/FRONTEND-HAND
 
 | Area | Endpoints |
 |---|---|
-| Auth | `POST /api/auth/register`, `POST /api/auth/login` |
+| Auth | `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/refresh` (`{refreshToken}`), `POST /api/auth/logout` (`{refreshToken}`, 204) |
 | Profile | `GET/PUT /api/profile/me`, `PUT /api/profile/me/avatar` (multipart `file`), `PUT /api/profile/me/password` |
 | Public profile | `GET /api/users/{id}` |
 | Files | `GET /files/**` (public) |
@@ -181,47 +183,75 @@ Full request and response details: [docs/FRONTEND-HANDOFF.md](docs/FRONTEND-HAND
 
 ## Security
 
-- Stateless JWT auth (24 h, configurable) and BCrypt passwords; no refresh endpoint
-- Only `/api/auth/**` and the `/ws` handshake are public
+- Stateless JWT access tokens (15 min) and BCrypt passwords. **Refresh tokens**: 256-bit random values, stored only as a SHA-256 hash, single use (every `POST /api/auth/refresh` revokes the one presented and issues a new pair, atomically, so two simultaneous refreshes cannot both win). Presenting an already-used token is treated as theft and revokes every session of that user. `POST /api/auth/logout` revokes one; changing the password revokes all of them; expired rows are purged daily. An access token already issued stays valid until it expires (at most 15 minutes) after a logout or password change
+- **Rate limiting** (`RateLimitFilter`, in-memory token buckets): login 10/min and refresh 30/min per client IP, register 10/hour per IP, message sending 30/min per user (REST and the WebSocket chat share one budget). Over the limit: `429` with `Retry-After` and the JSON error body. Limits are per instance; with several instances put a shared limiter (Redis, or the proxy) in front. Behind a proxy set `FORWARD_HEADERS_STRATEGY=native`
+- A request without a valid token is a `401` with the JSON error body and `WWW-Authenticate: Bearer` (`RestAuthenticationEntryPoint`); a wrong role is a `403` (`RestAccessDeniedHandler`)
+- Secrets come only from the environment (see Setup); `.env` is git-ignored and the app will not start without them. Only `health` (no details) is exposed by Actuator and it is the only public actuator route
+- Public: `/api/auth/**`, the `/ws` handshake, `GET /files/**`, `/actuator/health/**`, Swagger UI and `/v3/api-docs`
 - Exchanges, sessions and reschedule requests are visible only to their participants (others get 404); only participants can rate a session
 - Avatar uploads are checked by file content (JPG/PNG/WebP only, max 2 MB), not by the client's declared type, and stored under a random name. `GET /files/**` is public so image widgets can load it without a token
 - Email addresses are never returned by the public profile, search, follow or post endpoints
 - Database constraints back the business rules: unique `(user_id, skill_id, type)` on `user_skills`, `(session_id, rated_by_id)` on `ratings`, and `(follower_id, following_id)` plus a no-self-follow check on `follows`; a unique violation returns 409 (following twice is not an error, it is idempotent)
 - Only a post's author can delete it; a comment can be deleted by its author or by the author of the post it is on (everyone else gets 404); deleting a post removes its image files and rows (`ON DELETE CASCADE` backs this up in the database)
-- CORS allows `http://localhost:3000` and `http://localhost:8080`; edit `SecurityConfig` and `WebSocketConfig` for other origins
+- CORS origins come from `CORS_ALLOWED_ORIGINS` for REST; the WebSocket endpoint has its own list in `WebSocketConfig`
 - Roles: `USER` and `ADMIN`; the role is read from the database on every request (see Safety). Anything under `/api/admin/**` is 403 for non-admins
-- Change `jwt.secret` before deploying
 
 ## Setup
 
 Requires Java 17 and Maven (or `./mvnw`) plus PostgreSQL, or just Docker.
 
-**Docker** (API on `:8080`, PostgreSQL on host port `5434`):
+**1. Configure secrets.** Nothing secret lives in the repository. Copy the template and fill in the two required values:
+
+```bash
+cp .env.example .env
+openssl rand -base64 64     # paste the output as JWT_SECRET (at least 64 characters)
+```
+
+`.env` is git-ignored. `docker compose` reads it for variable substitution, and a local `./mvnw spring-boot:run` reads it too (`spring.config.import=optional:file:.env[.properties]`; real environment variables win). The app **refuses to start** without `DB_PASSWORD` and `JWT_SECRET`, or with a `JWT_SECRET` shorter than 64 characters.
+
+**2a. Docker** (API on `:8080`, PostgreSQL on host port `5434`):
 
 ```bash
 docker compose up --build
 ```
 
-**Manual:**
+**2b. Manual:**
 
 ```bash
 psql -U postgres -c "CREATE DATABASE paraspa_db;"
 ./mvnw spring-boot:run
 ```
 
-Defaults live in `src/main/resources/application.properties` and can be overridden with environment variables: `DB_HOST`, `DB_PORT`, `DB_NAME` (`paraspa_db`), `DB_USER` (`postgres`), `DB_PASSWORD` (`password`), `PORT` (`8080`), `JWT_SECRET`. `STORAGE_ROOT` (default `uploads`, where avatars are written). 23 starter skills are seeded on first start.
+Once it runs: Swagger UI at <http://localhost:8080/swagger-ui.html> (use **Authorize** and paste an access token), the OpenAPI document at `/v3/api-docs`, health at `/actuator/health` (`/liveness` and `/readiness` for orchestrators).
 
-**Database migrations (Flyway):** the schema is created and changed only by the SQL files in `src/main/resources/db/migration` (`V1` baseline, `V2` social tables, `V3` phase 0, `V4` follow constraints, `V5` post media/tags/counters, `V6` comment replies, `V7` feed indexes, `V8` notifications, `V9` blocks, reports, private accounts and follow requests). Hibernate runs with `ddl-auto=validate`, so the app refuses to start if an entity and the database disagree. To change the schema, add a new `V<n>__description.sql`; never edit an applied one. Databases created before Flyway (by Hibernate) are baselined at version 1 automatically (`baseline-on-migrate=true`) and then receive V2 onwards; those scripts are written to be safe on a database that already has some of the objects. Worth knowing: `V3` removes any duplicate `user_skills` / `ratings` rows (keeping the oldest) before adding the unique constraints, `V6` renames `post_comments` to `comments` and adds `parent_id`, and `V5` turns each existing post's single skill into a skill tag, backfills the like/comment counters, and then drops the old `posts.skill_id` column.
+### Configuration (environment variables)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `DB_PASSWORD` | **required** | PostgreSQL password |
+| `JWT_SECRET` | **required** | HS512 signing key, 64+ characters |
+| `DB_HOST` / `DB_PORT` / `DB_NAME` / `DB_USER` | `localhost` / `5432` / `paraspa_db` / `postgres` | database connection |
+| `JWT_ACCESS_EXPIRATION_MS` | `900000` (15 min) | access token lifetime |
+| `JWT_REFRESH_EXPIRATION_DAYS` | `30` | refresh token lifetime |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,http://localhost:8080` | browser origins, comma separated |
+| `FORWARD_HEADERS_STRATEGY` | `none` | set `native` behind a reverse proxy so rate limits see the real client IP |
+| `RATE_LIMIT_ENABLED` | `true` | see Rate limiting |
+| `RATE_LIMIT_{LOGIN,REGISTER,REFRESH,MESSAGE}_{CAPACITY,PERIOD}` | see below | per-rule limits |
+| `SWAGGER_ENABLED` | `true` | `false` hides Swagger UI and `/v3/api-docs` |
+| `LOG_LEVEL` / `SHOW_SQL` | `INFO` / `false` | logging of the app / of SQL |
+| `PORT`, `STORAGE_ROOT` | `8080`, `uploads` | server port, upload folder |
+
+**Database migrations (Flyway):** the schema is created and changed only by the SQL files in `src/main/resources/db/migration` (`V1` baseline, `V2` social tables, `V3` phase 0, `V4` follow constraints, `V5` post media/tags/counters, `V6` comment replies, `V7` feed indexes, `V8` notifications, `V9` blocks, reports, private accounts and follow requests, `V10` refresh tokens). Hibernate runs with `ddl-auto=validate`, so the app refuses to start if an entity and the database disagree. To change the schema, add a new `V<n>__description.sql`; never edit an applied one. Databases created before Flyway (by Hibernate) are baselined at version 1 automatically (`baseline-on-migrate=true`) and then receive V2 onwards; those scripts are written to be safe on a database that already has some of the objects. Worth knowing: `V3` removes any duplicate `user_skills` / `ratings` rows (keeping the oldest) before adding the unique constraints, `V6` renames `post_comments` to `comments` and adds `parent_id`, and `V5` turns each existing post's single skill into a skill tag, backfills the like/comment counters, and then drops the old `posts.skill_id` column.
 
 **Engagement counters:** `posts.like_count` / `comment_count` are changed only by single atomic `UPDATE`s. A like is inserted with `INSERT ... ON CONFLICT DO NOTHING` and the counter moves only when that statement really inserted a row, so repeated or simultaneous likes cannot double count. Deleting a comment first takes a real `FOR UPDATE` lock on its row (a native query, see `CommentRepositoryContractTest` for why `@Lock` would not be enough on PostgreSQL), so replies added at the same moment cannot be missed by the count.
 
 **Uploads:** avatars and post images (2 MB each; a request may carry up to 10 MB) are written to `STORAGE_ROOT` (git-ignored). To use S3 later, add another `StorageService` implementation and set `storage.type`.
 
-**Tests:** `./mvnw test`. Unit and query-level tests need no database (the feed and explore tests run the real queries on an in-memory H2 database and count SQL statements); `ParaspaApplicationTests` needs PostgreSQL with `paraspa_db`.
+**Tests and CI:** `./mvnw verify` runs everything (the GitHub Actions workflow in `.github/workflows/ci.yml` does exactly that on every push and pull request, with a PostgreSQL service container). Layers: Mockito unit tests; `@DataJpaTest` query tests on in-memory H2 (the feed and explore tests also count SQL statements); MockMvc security tests (`SecurityMockMvcTest`: no or bad token is 401, wrong role 403, public routes); end-to-end HTTP tests on H2; and **Testcontainers tests on real PostgreSQL** (`PostgresFeedQueryTest`, `PostgresLikeUniquenessTest`, `AuthFlowPostgresTest`, which also runs the real Flyway migrations). Those need a Docker daemon; without Docker they are skipped, or you can point them at an empty scratch database: `TEST_DATABASE_URL=jdbc:postgresql://localhost:5432/paraspa_it TEST_DATABASE_USER=postgres TEST_DATABASE_PASSWORD=... ./mvnw test`. `ParaspaApplicationTests` boots the app against the database named by `DB_*` (in CI the service container; locally your `.env`). Test settings (a throw-away signing key, rate limiting off) are in `src/test/resources/config/application.properties`.
 
 ## Errors
 
-All errors share one format. Validation and business-rule failures (including wrong login) return `400`, missing or foreign resources `404`, duplicates and uniqueness conflicts `409`.
+All errors share one format. Validation and business-rule failures (including wrong login) return `400`, a missing/expired access token or an invalid refresh token `401`, a wrong role `403`, missing or foreign resources `404`, duplicates and uniqueness conflicts `409`, rate limit `429`.
 
 ```json
 { "timestamp": "2026-10-12T10:30:00", "status": 400, "error": "Bad Request", "message": "Details", "path": "/api/endpoint" }

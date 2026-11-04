@@ -37,12 +37,12 @@ paraspa lets people trade skills: "I teach guitar, I want to learn Python."
 |------|-------|
 | Base URL (dev) | `http://localhost:8080` |
 | All REST routes | prefixed `/api` |
-| Auth | `Authorization: Bearer <jwt>` on every request except `/api/auth/**` |
-| Token lifetime | 24 h (`jwt.expiration=86400000`). **No refresh endpoint** — on expiry the user must log in again. |
+| Auth | `Authorization: Bearer <access token>` on every request except `/api/auth/**` |
+| Token lifetime | **Access token 15 min** (`expiresIn: 900` seconds in `AuthResponse`). Renew it with the **refresh token** (30 days, single use) at `POST /api/auth/refresh`; see 4.1. |
 | Content type | `application/json` |
 | CORS allowed origins | `http://localhost:3000`, `http://localhost:8080` only. Other dev ports/hosts will be blocked until `SecurityConfig` is changed. |
 | CORS methods | GET, POST, PUT, DELETE, OPTIONS (no PATCH) |
-| Logout | Client-side only: discard the token. No server endpoint. |
+| Logout | `POST /api/auth/logout` with the refresh token, then discard both tokens (4.1). |
 
 ### Pagination
 
@@ -98,8 +98,9 @@ Validation errors: `status 400`, `error: "Validation Error"`, `message` = `"fiel
 | 400 | Validation failure, **and** all business-rule violations (wrong user, wrong state), **and wrong login credentials** |
 | 404 | Resource not found, **or** you aren't a participant of the exchange/session you asked for (the server doesn't reveal that it exists) |
 | 409 | Email already registered; skill already added; or any database conflict (e.g. replying to a comment at the moment it is deleted). Liking, unliking and following are idempotent and never return 409 |
-| 401 | Declared in handler but business code mostly uses 400 — don't rely on it |
-| 403 / 401 | Missing/invalid/expired JWT on a protected route. No custom entry point is configured, so Spring's default applies (expect **403 with an empty body**; not verified by running the server). Treat 401 **and** 403 as "log in again". |
+| 401 | **Missing, invalid or expired access token** on a protected route (JSON body, `WWW-Authenticate: Bearer`) → refresh once, then log in again. Also a bad/expired/used refresh token. Wrong login credentials are still **400** |
+| 403 | Logged in but not allowed (for example a non-admin on `/api/admin/**`); JSON body |
+| 429 | Rate limit hit (login, register, refresh, sending messages). `Retry-After` header = seconds to wait; JSON body |
 | 500 | Unhandled |
 
 ---
@@ -133,15 +134,25 @@ Legend: 🔓 public · 🔒 needs JWT.
 |--------|------|------|------|---------|
 | POST | `/api/auth/register` | 🔓 | `{ name, email, password }` all required, email must be valid | **201** `AuthResponse` |
 | POST | `/api/auth/login` | 🔓 | `{ email, password }` | **200** `AuthResponse` |
+| POST | `/api/auth/refresh` | 🔓 | `{ refreshToken }` | **200** `AuthResponse` (a new pair) |
+| POST | `/api/auth/logout` | 🔓 | `{ refreshToken }` | **204**, idempotent |
 
 ```json
 // AuthResponse
-{ "token": "eyJ...", "type": "Bearer", "id": 1, "name": "Asha", "email": "asha@x.com" }
+{ "token": "eyJ...", "refreshToken": "q3Zx...", "expiresIn": 900, "type": "Bearer",
+  "id": 1, "name": "Asha", "email": "asha@x.com" }
 ```
+- `token` is the **access token** (JWT, 15 minutes): send it as `Authorization: Bearer <token>`. `refreshToken` is an opaque string, valid 30 days.
+- **Refresh tokens are single use and rotate.** Every `POST /refresh` returns a **new** `token` **and** a new `refreshToken`; the old refresh token is dead the moment it is used. Store the new one immediately (secure storage), replacing the old.
+- **Recommended client flow:** on a `401` from any protected call, call `/refresh` once (serialise it: if several requests fail at the same time, send ONE refresh and retry them all with the result), then retry the original request. If `/refresh` itself returns `401`, the session is over: clear the tokens and show the login screen. Do not retry a refresh that failed.
+- **Never send the same refresh token twice** (for example from two screens or after a crash before you saved the new one): a second use is treated as theft and the server **signs out every device of that user**.
+- **Logout:** `POST /logout` with the refresh token, then drop both tokens. It signs out that device only. Unknown or already-used tokens also return 204.
+- **Changing the password** (`PUT /api/profile/me/password`) signs out every device: all refresh tokens stop working (access tokens already issued live on for up to 15 minutes). Keep the current device logged in by logging in again with the new password.
+- The WebSocket checks the access token only at `CONNECT` (see section 5): reconnect with a fresh access token after a refresh.
+- Rate limits: login 10/min and refresh 30/min per IP, register 10/hour per IP. A `429` carries `Retry-After`.
 - Duplicate email → **409** `Email already registered`.
 - Wrong email *or* password → **400** `Invalid email or password` (same message for both).
-- Password must be **≥ 6 characters** on both register and change-password (400 `Validation Error` otherwise).
-- Register response has no bio/city; call `GET /api/profile/me` afterwards.
+- Bad, expired or already-used refresh token → **401** `Invalid or expired refresh token`.
 
 ### 4.2 Profile (current user)
 
@@ -710,7 +721,7 @@ How to handle it:
 
 **Missing endpoints (you may hit these while building screens)**
 - Another user's profile is `GET /api/users/{id}` (see 4.15). `/api/profile/me` stays self-only and is the only one that includes your email.
-- No token refresh, no logout, no password reset / email verification.
+- No password reset / email verification.
 - Pagination is not universal: see the list in [Pagination](#pagination). Endpoints not on that list return everything.
 - No delete/edit for exchanges, sessions, messages, ratings. Posts can be deleted but not edited (no changing text, tags or images); comments likewise.
 - No notification settings (mute a type, push notifications to the phone when the app is closed): notifications are in-app only, delivered over the open WebSocket or fetched from the list.
@@ -718,7 +729,8 @@ How to handle it:
 **Behaviors that surprise**
 - Lists of posts, comments, likes, matches, search and suggestions silently leave out blocked people (both ways) and private accounts you are not accepted by, so a page can hold fewer items than expected only at the very end; `commentCount` / `likeCount` on a post are totals and still include hidden people.
 - A malformed JSON body or an unknown enum value (for example a wrong report `reason`) is **400**, not 500.
-- Wrong credentials and every business-rule failure are **400**, not 401/403. Show `message` from the body.
+- Wrong credentials and every business-rule failure are **400**, not 401/403. Show `message` from the body. A **401** always means "the token is missing/expired": refresh, or log in again.
+- Sending messages is rate limited (30/min per user, shared by REST and the chat socket); on the socket the error text arrives on `/user/queue/errors`.
 - Reading an exchange/session you don't belong to is **404**, not 403.
 - `POST /sessions/{id}/ratings` returns 404 for non-participants. Still hide the rate button unless `me` is the exchange's requester or receiver.
 - Past dates are rejected (400) for new sessions and reschedule proposals; `durationMinutes` must be > 0.
