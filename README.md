@@ -28,6 +28,7 @@ git clone https://github.com/solasas/paraspa-mobileapp.git
 - **Public profiles & avatars**: `GET /api/users/{id}` (never exposes email); upload a JPG/PNG/WebP profile picture (max 2 MB), served at `/files/**`
 - **Pagination**: `page`/`size` (default 20, max 100) on search, exchanges, message history, follower lists and the explore/feed lists; cursor pagination (`items` + `nextCursor`, keyed on `createdAt` + `id`) for a user's posts and for new endpoints
 - **Follows**: follow and unfollow users (both idempotent; no self-follows), paginated follower and following lists, follow status, and follower/following counts on the public profile
+- **Notifications**: follows, likes, comments, replies, exchange requests/acceptances and messages notify the person concerned (never yourself; repeated likes/follows collapse into one). A REST list with an unread badge and read/read-all, plus a real-time push to `/user/queue/notifications` over the existing WebSocket
 - **Feeds**: a home feed (`/api/feed`: people you follow plus you, newest first), trending discovery (`/api/explore`: last 7 days, engagement with time decay, people you do not follow) and suggested people (`/api/explore/people`), all without N+1 queries (5 SQL statements per feed or explore request, 6 for suggestions, measured)
 - **Posts & feed**: text and/or up to 4 images (JPG/PNG/WebP, 2 MB each) with up to 3 skill tags; browse all posts or a feed of people you follow (both filterable by skill tag), a user's posts with cursor pagination, idempotent likes with a liker list, comments with one level of replies (cursor-paginated, nested), and stored counters kept exact under concurrent requests
 
@@ -56,12 +57,39 @@ User ---< UserSkill >--- Skill          User ---< Availability
 User --< SkillExchange >-- Skill (offered, wanted)
 SkillExchange ---< Session ---< RescheduleRequest
 Session ---< Rating (ratedBy -> ratedTo)        User --< Message >-- User
+User --< Notification >-- User (recipient, actor)
 User --< Follow >-- User                        User ---< Post >--- PostMedia (max 4)
 Post >---< Skill (max 3 tags, post_skills)     Post ---< PostLike >--- User
 Post ---< Comment >--- User    Comment ---< Comment (replies, one level)
 ```
 
 Flow: register, add skills, find a match, send an exchange, accept, schedule sessions, complete, rate.
+
+### Notifications: domain events, after commit, off the request thread
+
+Services do not know that notifications exist. When something happens they publish a plain domain event through Spring's `ApplicationEventPublisher`: `UserFollowedEvent`, `PostLikedEvent`, `CommentAddedEvent`, `ExchangeRequestedEvent`, `ExchangeAcceptedEvent`, `MessageSentEvent` (package `event`). `NotificationEventListener` turns each into a notification:
+
+| Event | Notifies | Type | Points at |
+|---|---|---|---|
+| a follow is created | the person followed | `FOLLOW` | `USER` = the follower |
+| a like is added | the post's author | `LIKE` | `POST` |
+| a top-level comment | the post's author | `COMMENT` | `POST` |
+| a reply | the author of the comment replied to | `REPLY` | `POST` |
+| an exchange is requested | the receiver | `EXCHANGE_REQUEST` | `EXCHANGE` |
+| an exchange is accepted | the requester | `EXCHANGE_ACCEPTED` | `EXCHANGE` |
+| a message is sent | the receiver | `MESSAGE` | `MESSAGE` = the newest message |
+
+Rules and how they are enforced:
+
+- **Only when something really happened.** The services publish an event only for a new follow, a like that was actually inserted, and so on. A repeated `PUT /follow` or `PUT /like` publishes nothing.
+- **After commit.** The listener is `@TransactionalEventListener(AFTER_COMMIT)`: a rolled-back action creates no notification, and a notification can never be seen before the action it describes. It also sets `fallbackExecution = true`, because some services (follow, message, exchange create/accept) are deliberately not transactional and an after-commit listener silently drops events published outside a transaction otherwise. Both behaviours are covered by `NotificationEventIntegrationTest`.
+- **Never yourself.** If the actor is the recipient (liking or commenting on your own post, replying to yourself) nothing is created. This is checked in the service, and the table has a `CHECK (recipient_id <> actor_id)`.
+- **Duplicates collapse.** A like or a follow can be repeated by toggling (like, unlike, like...). Those two types carry a `dedupe_key` (`actor:type:targetType:targetId`) under a unique constraint `(recipient_id, dedupe_key)`, so a user is told once even when requests are simultaneous. Comments and replies are always new. Messages collapse differently: while a person has an unread `MESSAGE` notification from someone, further messages from that person update it (it points at the newest message and moves back to the top) instead of adding a notification per message.
+- **Off the request thread.** Handlers are `@Async` on a small dedicated executor (`AsyncConfig`: 2-4 threads, queue of 2000, overflow dropped with a log line). This is not optional: an after-commit handler on the request thread still holds that request's database connection, and storing the notification (a transaction of its own, `REQUIRES_NEW`) needs a second one. With as many simultaneous requests as the pool has connections (10 by default), every request holds one and waits for another, so every request times out after 30 s and every notification is lost. That happened in testing with 10 concurrent likes; `NotificationConnectionPoolTest` reproduces it with a 3-connection pool. After the fix 40 simultaneous likes, comments and follows each produced exactly 40 notifications with no pool errors. The price is that a notification appears a few milliseconds after the request returns, not inside it.
+- **Failures stay contained.** A failure while creating or pushing a notification is logged and swallowed; it can never fail the request that caused it.
+- **Real time.** After the notification is stored (committed), `NotificationPushService` sends it with `SimpMessagingTemplate.convertAndSendToUser(email, "/queue/notifications", payload)`, which the client sees on `/user/queue/notifications`. The user is addressed by email because that is the STOMP principal name (the chat does the same). `NotificationWebSocketEndToEndTest` opens real STOMP sessions with real JWTs against the running application and checks the whole path.
+
+Measured on PostgreSQL with 300,000 notifications (20,000 for one user): the first page of a user's list takes 0.2 ms, the unread badge 3 ms (a partial index on unread rows only, so old read ones cost nothing), marking everything read 28 ms.
 
 ### Feed design: fan-out on read
 
@@ -124,10 +152,13 @@ Full request and response details: [docs/FRONTEND-HANDOFF.md](docs/FRONTEND-HAND
 | Ratings | `POST /api/sessions/{id}/ratings`, `GET /api/users/{id}/ratings`, `GET /api/users/{id}/rating-summary`, `GET /api/profile/me/ratings` |
 | Messages | `POST /api/messages`, `GET /api/messages/conversations`, `GET .../conversations/{userId}[?page&size]`, `GET .../unread-count` |
 | Follows | `PUT/DELETE /api/users/{id}/follow`, `GET /api/users/{id}/followers[?page&size]`, `GET /api/users/{id}/following[?page&size]`, `GET /api/users/{id}/follow-status` |
+| Notifications | `GET /api/notifications[?cursor&size]`, `GET /api/notifications/unread-count`, `PUT /api/notifications/{id}/read`, `PUT /api/notifications/read-all`; WebSocket: subscribe to `/user/queue/notifications` |
 | Feeds | `GET /api/feed[?cursor&size]` (home feed), `GET /api/explore[?skillId&cursor&size]` (trending), `GET /api/explore/people[?page&size]` (people to follow) |
 | Posts | `POST /api/posts` (JSON `{content, skillIds}` or multipart `content`, `skillIds`, `images`), `GET /api/posts[?skillId&page&size]`, `GET /api/posts/feed[?skillId&page&size]`, `GET/DELETE /api/posts/{id}`, `GET /api/users/{id}/posts[?cursor&size]` (cursor-paginated) |
 | Likes | `PUT/DELETE /api/posts/{id}/like` (both idempotent), `GET /api/posts/{id}/likes[?page&size]` |
 | Comments | `POST /api/posts/{id}/comments` (`{content, parentId?}`, max 500 chars), `GET /api/posts/{id}/comments[?cursor&size]` (cursor-paginated, replies nested one level), `DELETE /api/comments/{id}` (comment author or post author) |
+
+**Notifications (WebSocket):** with the same STOMP connection (same `Authorization: Bearer <token>` connect header), subscribe to `/user/queue/notifications`. Every new notification for that user arrives there as one JSON `NotificationResponse` (the same object the REST list returns); see `docs/FRONTEND-HANDOFF.md` for the payload. A user who is not connected simply gets it from the REST list later.
 
 **Chat (WebSocket):** connect to `ws://localhost:8080/ws` with a STOMP client, sending the JWT as the `Authorization: Bearer <token>` connect header. Publish `{"receiverId": 2, "content": "Hi"}` to `/app/chat.send`; subscribe to `/user/queue/messages` for messages and `/user/queue/errors` for errors.
 
@@ -164,7 +195,7 @@ psql -U postgres -c "CREATE DATABASE paraspa_db;"
 
 Defaults live in `src/main/resources/application.properties` and can be overridden with environment variables: `DB_HOST`, `DB_PORT`, `DB_NAME` (`paraspa_db`), `DB_USER` (`postgres`), `DB_PASSWORD` (`password`), `PORT` (`8080`), `JWT_SECRET`. `STORAGE_ROOT` (default `uploads`, where avatars are written). 23 starter skills are seeded on first start.
 
-**Database migrations (Flyway):** the schema is created and changed only by the SQL files in `src/main/resources/db/migration` (`V1` baseline, `V2` social tables, `V3` phase 0, `V4` follow constraints, `V5` post media/tags/counters, `V6` comment replies). Hibernate runs with `ddl-auto=validate`, so the app refuses to start if an entity and the database disagree. To change the schema, add a new `V<n>__description.sql`; never edit an applied one. Databases created before Flyway (by Hibernate) are baselined at version 1 automatically (`baseline-on-migrate=true`) and then receive V2 onwards; those scripts are written to be safe on a database that already has some of the objects. Worth knowing: `V3` removes any duplicate `user_skills` / `ratings` rows (keeping the oldest) before adding the unique constraints, `V6` renames `post_comments` to `comments` and adds `parent_id`, and `V5` turns each existing post's single skill into a skill tag, backfills the like/comment counters, and then drops the old `posts.skill_id` column.
+**Database migrations (Flyway):** the schema is created and changed only by the SQL files in `src/main/resources/db/migration` (`V1` baseline, `V2` social tables, `V3` phase 0, `V4` follow constraints, `V5` post media/tags/counters, `V6` comment replies, `V7` feed indexes, `V8` notifications). Hibernate runs with `ddl-auto=validate`, so the app refuses to start if an entity and the database disagree. To change the schema, add a new `V<n>__description.sql`; never edit an applied one. Databases created before Flyway (by Hibernate) are baselined at version 1 automatically (`baseline-on-migrate=true`) and then receive V2 onwards; those scripts are written to be safe on a database that already has some of the objects. Worth knowing: `V3` removes any duplicate `user_skills` / `ratings` rows (keeping the oldest) before adding the unique constraints, `V6` renames `post_comments` to `comments` and adds `parent_id`, and `V5` turns each existing post's single skill into a skill tag, backfills the like/comment counters, and then drops the old `posts.skill_id` column.
 
 **Engagement counters:** `posts.like_count` / `comment_count` are changed only by single atomic `UPDATE`s. A like is inserted with `INSERT ... ON CONFLICT DO NOTHING` and the counter moves only when that statement really inserted a row, so repeated or simultaneous likes cannot double count. Deleting a comment first takes a real `FOR UPDATE` lock on its row (a native query, see `CommentRepositoryContractTest` for why `@Lock` would not be enough on PostgreSQL), so replies added at the same moment cannot be missed by the count.
 

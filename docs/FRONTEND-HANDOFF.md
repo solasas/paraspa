@@ -27,6 +27,7 @@ paraspa lets people trade skills: "I teach guitar, I want to learn Python."
 | 14 | **Posts & feed** | Post text and/or up to 4 images, tagged with up to 3 skills. Explore all posts or a feed of people I follow (+ my own), optionally filtered by skill tag. A user's posts are cursor-paginated. Like (idempotent) and comment, with one level of replies. |
 | 15 | **Public profiles & avatars** | `GET /users/{id}` returns another user's public profile (never the email). Users upload a profile picture (JPG/PNG/WebP, ≤ 2 MB). |
 | 16 | **Feeds** | A home feed (people I follow + me, newest first), a trending Explore tab (last 7 days, people I don't follow) and suggested people to follow. |
+| 17 | **Notifications** | Someone followed / liked / commented / replied / requested or accepted an exchange / messaged me. A list with an unread badge, mark as read, and a real-time push over the WebSocket. |
 
 ---
 
@@ -57,11 +58,11 @@ Most list endpoints take `?page=0&size=20` (`page` is zero-based, **default size
 The response is still a plain JSON array. There is no total count: keep requesting `page + 1` until a page comes back with **fewer than `size`** items (or empty).
 
 Paginated today: `GET /users/search`, `GET /exchanges`, `/exchanges/sent`, `/exchanges/received`, `GET /messages/conversations/{userId}`, `GET /users/{id}/followers`, `GET /users/{id}/following`, `GET /posts`, `/posts/feed`, `GET /posts/{id}/likes`.
-**Cursor-paginated** (envelope below): `GET /feed`, `GET /explore`, `GET /users/{id}/posts`, `GET /posts/{id}/comments`.
+**Cursor-paginated** (envelope below): `GET /notifications`, `GET /feed`, `GET /explore`, `GET /users/{id}/posts`, `GET /posts/{id}/comments`.
 `GET /explore/people` uses `page` / `size`.
 **Not** paginated yet: matches, skills, ratings, `GET /messages/conversations` (inbox list), sessions.
 
-**Cursor pagination.** New list endpoints, `GET /feed`, `GET /explore`, `GET /users/{id}/posts` and `GET /posts/{id}/comments` return this envelope instead of an array:
+**Cursor pagination.** New list endpoints, `GET /notifications`, `GET /feed`, `GET /explore`, `GET /users/{id}/posts` and `GET /posts/{id}/comments` return this envelope instead of an array:
 ```json
 { "items": [ /* … */ ], "nextCursor": "MTIz" }
 ```
@@ -543,11 +544,50 @@ Every item in `/feed` and `/explore` is a full `PostResponse` (see 4.14): `autho
 }
 ```
 
+### 4.17 Notifications
+
+| Method | Path | Query | Success |
+|--------|------|-------|---------|
+| GET | `/api/notifications` | `cursor?`, `size` (default 20, max 100) | 200 `{ items: NotificationResponse[], nextCursor }`, newest first |
+| GET | `/api/notifications/unread-count` | | 200 bare number, e.g. `3` (like `/messages/unread-count`) |
+| PUT | `/api/notifications/{id}/read` | | **204**. Idempotent. Not yours or missing: **404** `Notification not found` |
+| PUT | `/api/notifications/read-all` | | **204**. Marks all of *my* notifications read |
+
+```json
+// NotificationResponse (the same object is pushed over the WebSocket, see section 5)
+{ "id": 40, "type": "LIKE", "targetType": "POST", "targetId": 812,
+  "actor": { "id": 5, "name": "Ben", "avatarUrl": "/files/avatars/5-….png", "email": null, "…": "…" },
+  "read": false, "createdAt": "2026-11-04T17:20:11.482913" }
+```
+
+**What each type means and where to send the user when it is tapped**
+
+| `type` | Who gets it | Text for the UI | `targetType` / `targetId` | Open |
+|--------|-------------|-----------------|---------------------------|------|
+| `FOLLOW` | the person followed | "{actor} started following you" | `USER` / the follower's id | profile `GET /users/{id}` |
+| `LIKE` | the post's author | "{actor} liked your post" | `POST` / post id | post `GET /posts/{id}` |
+| `COMMENT` | the post's author | "{actor} commented on your post" | `POST` / post id | the post's comments |
+| `REPLY` | the author of the comment replied to | "{actor} replied to your comment" | `POST` / post id | the post's comments |
+| `EXCHANGE_REQUEST` | the receiver | "{actor} wants to swap skills with you" | `EXCHANGE` / exchange id | `GET /exchanges/{id}` |
+| `EXCHANGE_ACCEPTED` | the requester | "{actor} accepted your exchange" | `EXCHANGE` / exchange id | `GET /exchanges/{id}` |
+| `MESSAGE` | the receiver | "{actor} sent you a message" | `MESSAGE` / newest message id | chat with `actor.id` |
+
+**Behaviour you must know**
+- **Never about yourself.** Liking, commenting or replying on your own things creates nothing.
+- **Only the first like (and the first follow) counts.** If someone likes, unlikes and likes again, or follows, unfollows and follows again, you get one notification, not three.
+- **Messages collapse.** While you have an unread `MESSAGE` notification from a person, more messages from them do **not** add rows: the same notification (same `id`) now points at their newest message and moves to the top. Once you have read it, their next message creates a new one. So a chat shows as one entry per person, not one per message.
+- **Replies notify only the person replied to**, not the post's author (they get `COMMENT` only for top-level comments).
+- **Newest first** by `createdAt` (a collapsed message notification counts as new again). Paginate with the cursor exactly like the feed: first request without `cursor`, then send `nextCursor` until it is `null`; garbled cursor is **400** `Invalid cursor`.
+- **Appears a moment after the action.** The notification is created a few milliseconds after the request that caused it returns (it is handled on a background thread), so do not expect the very next request to already list it, and refresh the badge from the WebSocket push or after a short delay.
+- **The target may be gone.** A post can be deleted after someone liked it; opening the notification can then return **404**. Show a "no longer available" message and mark it read.
+- **Read state is yours.** You can only mark your own notifications. Marking an already read one is fine (204).
+- Badge: `GET /notifications/unread-count`, refresh on app start, on reconnect, and whenever a push arrives (or increment locally: +1 for a push whose `id` you do not have yet, nothing for one you do; see section 5).
+
 ---
 
-## 5. Real-time chat (WebSocket / STOMP)
+## 5. Real-time chat and notifications (WebSocket / STOMP)
 
-Use REST for history, WebSocket for live updates and sending.
+Use REST for history, WebSocket for live updates and sending. The same connection carries chat messages and notifications.
 
 | Item | Value |
 |------|-------|
@@ -557,6 +597,7 @@ Use REST for history, WebSocket for live updates and sending.
 | Auth | STOMP `CONNECT` frame header `Authorization: Bearer <jwt>`. Missing/invalid → connection rejected |
 | Send to | `/app/chat.send` with body `{ "receiverId": 4, "content": "hello" }` |
 | Subscribe (messages) | `/user/queue/messages` → receives `MessageResponse` |
+| Subscribe (notifications) | `/user/queue/notifications` → receives a `NotificationResponse` (see 4.17) for every new notification of the logged-in user |
 | Subscribe (errors) | `/user/queue/errors` → receives a plain error **string** |
 
 Behavior:
@@ -586,6 +627,26 @@ client.publish({
 ```
 Keep unread badges in sync: increment on incoming messages where `sender.id !== me.id` and the thread isn't open; refetch `GET /api/messages/unread-count` on reconnect.
 
+### Notifications over the WebSocket
+
+Subscribe once after connecting:
+```js
+client.subscribe('/user/queue/notifications', f => onNotification(JSON.parse(f.body)));
+```
+Each frame body is one JSON object, the **same shape as an item of `GET /api/notifications`** (dates are ISO strings, `actor` has no email):
+```json
+{ "id": 40, "type": "FOLLOW", "targetType": "USER", "targetId": 5,
+  "actor": { "id": 5, "name": "Ben", "bio": null, "city": "Pune", "avatarUrl": null, "email": null,
+             "averageRating": null, "totalRatings": null },
+  "read": false, "createdAt": "2026-11-04T17:20:11.482913" }
+```
+How to handle it:
+- **Upsert by `id`.** A `MESSAGE` notification is re-sent with the same `id` each time another message arrives (it points at the newest message), so replace the existing item and move it to the top instead of adding a second one.
+- **Only your own notifications arrive**, and never the ones for things you did yourself.
+- **The push is a convenience, not a guarantee.** If the socket is down (app in background, offline, token expired) nothing is queued. On every (re)connect, call `GET /api/notifications/unread-count` and refresh the list from the REST endpoint.
+- A user with several open sessions (phone and web) gets the frame on each.
+- The destination is `/user/queue/notifications` (the `/user` prefix is added by STOMP; the server sends to `/queue/notifications` for that user).
+
 ---
 
 ## 6. Suggested screens → endpoints
@@ -605,6 +666,7 @@ Keep unread badges in sync: increment on incoming messages where `sender.id !== 
 | Exchange detail | `GET /exchanges/{id}`, `GET /exchanges/{id}/sessions`, `POST /exchanges/{id}/sessions`, `PUT /exchanges/{id}/complete` |
 | Upcoming sessions | `GET /sessions/my-sessions` |
 | Session detail | `GET /sessions/{id}`, `PUT …/complete`, `PUT …/cancel`, reschedule endpoints, `POST /sessions/{id}/ratings` |
+| Notifications | `GET /notifications[?cursor&size]`, `GET /notifications/unread-count`, `PUT /notifications/{id}/read`, `PUT /notifications/read-all`; live: WebSocket `/user/queue/notifications` |
 | Inbox | `GET /messages/conversations`, `GET /messages/unread-count`, WebSocket |
 | Chat thread | `GET /messages/conversations/{id}`, WebSocket `/app/chat.send` |
 | Home feed | `GET /feed[?cursor&size]`, `POST /posts` (JSON, or multipart with images), `PUT/DELETE /posts/{id}/like` |
@@ -620,10 +682,9 @@ Keep unread badges in sync: increment on incoming messages where `sender.id !== 
 **Missing endpoints (you may hit these while building screens)**
 - Another user's profile is `GET /api/users/{id}` (see 4.15). `/api/profile/me` stays self-only and is the only one that includes your email.
 - No token refresh, no logout, no password reset / email verification.
-- No notifications endpoint; poll or use the chat socket for message badges.
 - Pagination is not universal: see the list in [Pagination](#pagination). Endpoints not on that list return everything.
 - No delete/edit for exchanges, sessions, messages, ratings. Posts can be deleted but not edited (no changing text, tags or images); comments likewise.
-- No notifications for follows, likes, comments or replies.
+- No notification settings (mute a type, push notifications to the phone when the app is closed): notifications are in-app only, delivered over the open WebSocket or fetched from the list.
 
 **Behaviors that surprise**
 - Wrong credentials and every business-rule failure are **400**, not 401/403. Show `message` from the body.
