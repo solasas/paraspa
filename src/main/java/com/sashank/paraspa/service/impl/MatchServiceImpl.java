@@ -15,7 +15,9 @@ import com.sashank.paraspa.util.DtoMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 @Service
@@ -32,26 +34,32 @@ public class MatchServiceImpl implements MatchService {
 
     @Override
     public List<MatchResponse> findMatches(Long userId) {
-        User currentUser = userRepository.findById(userId)
+        userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        List<UserSkill> myLearnSkills = userSkillRepository.findByUserIdAndType(userId, SkillType.LEARN);
-        List<UserSkill> myTeachSkills = userSkillRepository.findByUserIdAndType(userId, SkillType.TEACH);
+        Set<Long> myLearnSkillIds = skillIds(userSkillRepository.findByUserIdAndType(userId, SkillType.LEARN));
+        Set<Long> myTeachSkillIds = skillIds(userSkillRepository.findByUserIdAndType(userId, SkillType.TEACH));
 
-        Set<Long> myLearnSkillIds = myLearnSkills.stream()
-                .map(us -> us.getSkill().getId())
-                .collect(Collectors.toSet());
+        // Only the rows that can produce a match are loaded, each kind in ONE query, whatever the number of users:
+        // people who teach something I want to learn, and people who want to learn something I teach.
+        Map<Long, List<UserSkill>> teachingWhatIWant = myLearnSkillIds.isEmpty() ? Map.of()
+                : groupByUser(userSkillRepository.findWithUserBySkillIdInAndType(myLearnSkillIds, SkillType.TEACH));
+        Map<Long, List<UserSkill>> learningWhatITeach = myTeachSkillIds.isEmpty() ? Map.of()
+                : groupByUser(userSkillRepository.findWithUserBySkillIdInAndType(myTeachSkillIds, SkillType.LEARN));
 
-        Set<Long> myTeachSkillIds = myTeachSkills.stream()
-                .map(us -> us.getSkill().getId())
-                .collect(Collectors.toSet());
+        Set<Long> candidateIds = new TreeSet<>(teachingWhatIWant.keySet());
+        candidateIds.addAll(learningWhatITeach.keySet());
+        candidateIds.remove(userId);
 
-        List<User> allUsers = userRepository.findAll();
-
-        return allUsers.stream()
-                .filter(user -> !user.getId().equals(userId))
-                .map(otherUser -> buildMatchResponse(otherUser, myLearnSkillIds, myTeachSkillIds))
+        return candidateIds.stream()
+                .map(candidateId -> {
+                    List<UserSkill> theyTeach = teachingWhatIWant.getOrDefault(candidateId, List.of());
+                    List<UserSkill> theyLearn = learningWhatITeach.getOrDefault(candidateId, List.of());
+                    User candidate = !theyTeach.isEmpty() ? theyTeach.get(0).getUser() : theyLearn.get(0).getUser();
+                    return buildMatchResponse(candidate, theyTeach, theyLearn, myLearnSkillIds, myTeachSkillIds);
+                })
                 .filter(match -> !match.getTheyCanTeachMe().isEmpty() || !match.getICanTeachThem().isEmpty())
+                // mutual matches first; the candidate ids were visited in ascending order and the sort is stable
                 .sorted((a, b) -> Boolean.compare(b.isMutual(), a.isMutual()))
                 .collect(Collectors.toList());
     }
@@ -89,10 +97,24 @@ public class MatchServiceImpl implements MatchService {
         return user;
     }
 
-    private MatchResponse buildMatchResponse(User otherUser, Set<Long> myLearnSkillIds, Set<Long> myTeachSkillIds) {
-        List<UserSkill> theirTeachSkills = userSkillRepository.findByUserIdAndType(otherUser.getId(), SkillType.TEACH);
-        List<UserSkill> theirLearnSkills = userSkillRepository.findByUserIdAndType(otherUser.getId(), SkillType.LEARN);
+    private static Set<Long> skillIds(List<UserSkill> userSkills) {
+        return userSkills.stream().map(us -> us.getSkill().getId()).collect(Collectors.toSet());
+    }
 
+    private static Map<Long, List<UserSkill>> groupByUser(List<UserSkill> userSkills) {
+        return userSkills.stream().collect(Collectors.groupingBy(us -> us.getUser().getId()));
+    }
+
+    private MatchResponse buildMatchResponse(User otherUser, Set<Long> myLearnSkillIds, Set<Long> myTeachSkillIds) {
+        return buildMatchResponse(otherUser,
+                userSkillRepository.findByUserIdAndType(otherUser.getId(), SkillType.TEACH),
+                userSkillRepository.findByUserIdAndType(otherUser.getId(), SkillType.LEARN),
+                myLearnSkillIds, myTeachSkillIds);
+    }
+
+    private MatchResponse buildMatchResponse(User otherUser, List<UserSkill> theirTeachSkills,
+                                             List<UserSkill> theirLearnSkills,
+                                             Set<Long> myLearnSkillIds, Set<Long> myTeachSkillIds) {
         List<SkillResponse> theyCanTeachMe = theirTeachSkills.stream()
                 .filter(us -> myLearnSkillIds.contains(us.getSkill().getId()))
                 .map(us -> dtoMapper.toSkillResponse(us.getSkill()))
@@ -113,4 +135,3 @@ public class MatchServiceImpl implements MatchService {
                 .build();
     }
 }
-

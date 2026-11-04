@@ -16,8 +16,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -56,6 +63,11 @@ class MatchServiceImplTest {
                 });
     }
 
+    /** The batched lookup: all rows of one type for a set of skills, with their users, in one call. */
+    private void stubBatch(Set<Long> skillIds, SkillType type, UserSkill... rows) {
+        when(userSkillRepository.findWithUserBySkillIdInAndType(eq(skillIds), eq(type))).thenReturn(List.of(rows));
+    }
+
     @Test
     void findMatches_shouldReturnMatch_whenUserTeachesSkillOtherUserWantsToLearn() {
         Long userId = 1L;
@@ -65,12 +77,10 @@ class MatchServiceImplTest {
         User userB = User.builder().id(2L).build();
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(userA));
-        when(userRepository.findAll()).thenReturn(List.of(userA, userB));
-
         when(userSkillRepository.findByUserIdAndType(userId, SkillType.LEARN)).thenReturn(List.of());
         when(userSkillRepository.findByUserIdAndType(userId, SkillType.TEACH)).thenReturn(List.of(teach(userA, guitar)));
-        when(userSkillRepository.findByUserIdAndType(2L, SkillType.TEACH)).thenReturn(List.of());
-        when(userSkillRepository.findByUserIdAndType(2L, SkillType.LEARN)).thenReturn(List.of(learn(userB, guitar)));
+        // I teach guitar, so look for people who want to learn guitar: B does
+        stubBatch(Set.of(10L), SkillType.LEARN, learn(userB, guitar));
 
         stubDtoMapper();
 
@@ -95,16 +105,11 @@ class MatchServiceImplTest {
         User userC = User.builder().id(3L).build();
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(userA));
-        when(userRepository.findAll()).thenReturn(List.of(userA, userB, userC));
-
         when(userSkillRepository.findByUserIdAndType(userId, SkillType.LEARN)).thenReturn(List.of(learn(userA, piano)));
         when(userSkillRepository.findByUserIdAndType(userId, SkillType.TEACH)).thenReturn(List.of(teach(userA, guitar)));
-
-        when(userSkillRepository.findByUserIdAndType(2L, SkillType.TEACH)).thenReturn(List.of(teach(userB, piano)));
-        when(userSkillRepository.findByUserIdAndType(2L, SkillType.LEARN)).thenReturn(List.of(learn(userB, guitar)));
-
-        when(userSkillRepository.findByUserIdAndType(3L, SkillType.TEACH)).thenReturn(List.of(teach(userC, piano)));
-        when(userSkillRepository.findByUserIdAndType(3L, SkillType.LEARN)).thenReturn(List.of());
+        // I want piano: B and C teach it. I teach guitar: B wants it.
+        stubBatch(Set.of(20L), SkillType.TEACH, teach(userB, piano), teach(userC, piano));
+        stubBatch(Set.of(10L), SkillType.LEARN, learn(userB, guitar));
 
         stubDtoMapper();
 
@@ -125,10 +130,11 @@ class MatchServiceImplTest {
         User userA = User.builder().id(userId).build();
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(userA));
-        when(userRepository.findAll()).thenReturn(List.of(userA));
-
         when(userSkillRepository.findByUserIdAndType(userId, SkillType.LEARN)).thenReturn(List.of(learn(userA, guitar)));
         when(userSkillRepository.findByUserIdAndType(userId, SkillType.TEACH)).thenReturn(List.of(teach(userA, guitar)));
+        // the batched queries find the current user's own rows too (they teach and learn guitar); they must be ignored
+        stubBatch(Set.of(10L), SkillType.TEACH, teach(userA, guitar));
+        stubBatch(Set.of(10L), SkillType.LEARN, learn(userA, guitar));
 
         List<MatchResponse> matches = matchService.findMatches(userId);
 
@@ -139,23 +145,110 @@ class MatchServiceImplTest {
     void findMatches_shouldReturnEmptyList_whenNoComplementarySkillsExist() {
         Long userId = 1L;
         Skill guitar = Skill.builder().id(10L).build();
-        Skill pottery = Skill.builder().id(30L).build();
 
         User userA = User.builder().id(userId).build();
-        User userB = User.builder().id(2L).build();
 
         when(userRepository.findById(userId)).thenReturn(Optional.of(userA));
-        when(userRepository.findAll()).thenReturn(List.of(userA, userB));
-
         when(userSkillRepository.findByUserIdAndType(userId, SkillType.LEARN)).thenReturn(List.of());
         when(userSkillRepository.findByUserIdAndType(userId, SkillType.TEACH)).thenReturn(List.of(teach(userA, guitar)));
+        // nobody (e.g. a potter who teaches and learns pottery) wants to learn guitar
+        stubBatch(Set.of(10L), SkillType.LEARN);
 
-        when(userSkillRepository.findByUserIdAndType(2L, SkillType.TEACH)).thenReturn(List.of(teach(userB, pottery)));
-        when(userSkillRepository.findByUserIdAndType(2L, SkillType.LEARN)).thenReturn(List.of(learn(userB, pottery)));
+        assertThat(matchService.findMatches(userId)).isEmpty();
+    }
+
+    @Test
+    void findMatches_shouldListMutualMatchesFirst_thenByUserId() {
+        Long userId = 1L;
+        Skill guitar = Skill.builder().id(10L).build();
+        Skill piano = Skill.builder().id(20L).build();
+        User me = User.builder().id(userId).build();
+        User u2 = User.builder().id(2L).build();
+        User u3 = User.builder().id(3L).build();
+        User u4 = User.builder().id(4L).build();
+        User u5 = User.builder().id(5L).build();
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(me));
+        when(userSkillRepository.findByUserIdAndType(userId, SkillType.LEARN)).thenReturn(List.of(learn(me, piano)));
+        when(userSkillRepository.findByUserIdAndType(userId, SkillType.TEACH)).thenReturn(List.of(teach(me, guitar)));
+        // rows come back in arbitrary order from the database
+        stubBatch(Set.of(20L), SkillType.TEACH, teach(u5, piano), teach(u2, piano), teach(u4, piano));
+        stubBatch(Set.of(10L), SkillType.LEARN, learn(u4, guitar), learn(u3, guitar), learn(u5, guitar));
+        stubDtoMapper();
 
         List<MatchResponse> matches = matchService.findMatches(userId);
 
-        assertThat(matches).isEmpty();
+        // mutual: 4 and 5 (they teach piano and want guitar); one-sided: 2 (teaches piano), 3 (wants guitar)
+        assertThat(matches).extracting(m -> m.getUser().getId()).containsExactly(4L, 5L, 2L, 3L);
+        assertThat(matches).extracting(MatchResponse::isMutual).containsExactly(true, true, false, false);
+    }
+
+    @Test
+    void findMatches_shouldNeverLoadAllUsersOrAskPerUser() {
+        Long userId = 1L;
+        Skill guitar = Skill.builder().id(10L).build();
+        User me = User.builder().id(userId).build();
+        User other = User.builder().id(2L).build();
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(me));
+        when(userSkillRepository.findByUserIdAndType(userId, SkillType.LEARN)).thenReturn(List.of(learn(me, guitar)));
+        when(userSkillRepository.findByUserIdAndType(userId, SkillType.TEACH)).thenReturn(List.of(teach(me, guitar)));
+        stubBatch(Set.of(10L), SkillType.TEACH, teach(other, guitar));
+        stubBatch(Set.of(10L), SkillType.LEARN, learn(other, guitar));
+        stubDtoMapper();
+
+        matchService.findMatches(userId);
+
+        // the old implementation did findAll() plus two findByUserIdAndType calls for every user in the system
+        verify(userRepository, never()).findAll();
+        verify(userSkillRepository, times(2)).findByUserIdAndType(anyLong(), any());       // only the current user's two lists
+        verify(userSkillRepository, times(2)).findWithUserBySkillIdInAndType(any(), any()); // the two batched lookups
+    }
+
+    @Test
+    void findMatches_shouldSkipTheBatchedQueryForAnEmptySkillList_andReturnNothingForAUserWithNoSkills() {
+        User me = User.builder().id(1L).build();
+        when(userRepository.findById(1L)).thenReturn(Optional.of(me));
+        when(userSkillRepository.findByUserIdAndType(1L, SkillType.LEARN)).thenReturn(List.of());
+        when(userSkillRepository.findByUserIdAndType(1L, SkillType.TEACH)).thenReturn(List.of());
+
+        assertThat(matchService.findMatches(1L)).isEmpty();
+
+        // an empty IN () list would be invalid SQL, so no batched query may run
+        verify(userSkillRepository, never()).findWithUserBySkillIdInAndType(any(), any());
+    }
+
+    @Test
+    void findMatches_shouldThrowResourceNotFoundException_whenCurrentUserDoesNotExist() {
+        when(userRepository.findById(9L)).thenReturn(Optional.empty());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> matchService.findMatches(9L))
+                .isInstanceOf(com.sashank.paraspa.exception.ResourceNotFoundException.class)
+                .hasMessage("User not found");
+    }
+
+    @Test
+    void findMatches_shouldListEachCandidateOnceEvenWhenTheyMatchInBothDirections() {
+        Long userId = 1L;
+        Skill guitar = Skill.builder().id(10L).build();
+        Skill piano = Skill.builder().id(20L).build();
+        Skill drums = Skill.builder().id(30L).build();
+        User me = User.builder().id(userId).build();
+        User other = User.builder().id(2L).build();
+
+        when(userRepository.findById(userId)).thenReturn(Optional.of(me));
+        when(userSkillRepository.findByUserIdAndType(userId, SkillType.LEARN)).thenReturn(List.of(learn(me, piano), learn(me, drums)));
+        when(userSkillRepository.findByUserIdAndType(userId, SkillType.TEACH)).thenReturn(List.of(teach(me, guitar)));
+        stubBatch(Set.of(20L, 30L), SkillType.TEACH, teach(other, piano), teach(other, drums));
+        stubBatch(Set.of(10L), SkillType.LEARN, learn(other, guitar));
+        stubDtoMapper();
+
+        List<MatchResponse> matches = matchService.findMatches(userId);
+
+        assertThat(matches).hasSize(1);
+        assertThat(matches.get(0).getTheyCanTeachMe()).extracting("id").containsExactlyInAnyOrder(20L, 30L);
+        assertThat(matches.get(0).getICanTeachThem()).extracting("id").containsExactly(10L);
+        assertThat(matches.get(0).isMutual()).isTrue();
     }
 
     @Test
