@@ -66,4 +66,29 @@ class DtoMapperPostTest {
         assertThat(post.hashCode()).isEqualTo(post.hashCode());
         assertThat(post.getMedia().get(0).toString()).contains("a.png");
     }
+
+    @Test
+    void toCommentResponse_shouldCarryParentIdAndHideTheAuthorsEmail() {
+        com.sashank.paraspa.entity.Post post = Post.builder().id(100L).author(User.builder().id(9L).build()).build();
+        com.sashank.paraspa.entity.Comment parent = com.sashank.paraspa.entity.Comment.builder().id(10L).post(post).build();
+        com.sashank.paraspa.entity.Comment reply = com.sashank.paraspa.entity.Comment.builder().id(11L).post(post).parent(parent)
+                .author(User.builder().id(1L).email("secret@example.com").build()).content("hi").build();
+
+        com.sashank.paraspa.dto.response.CommentResponse response = mapper.toCommentResponse(reply);
+
+        assertThat(response.getId()).isEqualTo(11L);
+        assertThat(response.getPostId()).isEqualTo(100L);
+        assertThat(response.getParentId()).isEqualTo(10L);
+        assertThat(response.getAuthor().getEmail()).isNull();
+        assertThat(response.getReplies()).isEmpty();
+    }
+
+    @Test
+    void toCommentResponse_topLevelCommentShouldHaveNoParentId() {
+        com.sashank.paraspa.entity.Post post = Post.builder().id(100L).author(User.builder().id(9L).build()).build();
+        com.sashank.paraspa.entity.Comment top = com.sashank.paraspa.entity.Comment.builder().id(10L).post(post)
+                .author(User.builder().id(1L).build()).content("hi").build();
+
+        assertThat(mapper.toCommentResponse(top).getParentId()).isNull();
+    }
 }

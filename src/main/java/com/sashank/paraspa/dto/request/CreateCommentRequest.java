@@ -13,6 +13,9 @@ import lombok.NoArgsConstructor;
 @Builder
 public class CreateCommentRequest {
     @NotBlank(message = "Content is required")
-    @Size(max = 1000, message = "Comment must be at most 1000 characters")
+    @Size(max = 500, message = "Comment must be at most 500 characters")
     private String content;
+
+    /** Set to reply to a top-level comment of the same post; omit for a new top-level comment. */
+    private Long parentId;
 }

@@ -1,20 +1,16 @@
 package com.sashank.paraspa.service.impl;
 
-import com.sashank.paraspa.dto.request.CreateCommentRequest;
-import com.sashank.paraspa.dto.response.CommentResponse;
 import com.sashank.paraspa.dto.response.CursorPageResponse;
 import com.sashank.paraspa.dto.response.PostResponse;
+import com.sashank.paraspa.dto.response.UserResponse;
 import com.sashank.paraspa.entity.Post;
-import com.sashank.paraspa.entity.PostComment;
-import com.sashank.paraspa.entity.PostLike;
 import com.sashank.paraspa.entity.PostMedia;
 import com.sashank.paraspa.entity.Skill;
 import com.sashank.paraspa.entity.User;
-import com.sashank.paraspa.exception.AlreadyExistsException;
 import com.sashank.paraspa.exception.BadRequestException;
 import com.sashank.paraspa.exception.ResourceNotFoundException;
 import com.sashank.paraspa.repository.FollowRepository;
-import com.sashank.paraspa.repository.PostCommentRepository;
+import com.sashank.paraspa.repository.CommentRepository;
 import com.sashank.paraspa.repository.PostLikeRepository;
 import com.sashank.paraspa.repository.PostRepository;
 import com.sashank.paraspa.repository.SkillRepository;
@@ -32,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -53,7 +50,7 @@ public class PostServiceImpl implements PostService {
     private PostLikeRepository postLikeRepository;
 
     @Autowired
-    private PostCommentRepository postCommentRepository;
+    private CommentRepository commentRepository;
 
     @Autowired
     private FollowRepository followRepository;
@@ -213,7 +210,7 @@ public class PostServiceImpl implements PostService {
         List<String> mediaUrls = post.getMedia().stream().map(PostMedia::getUrl).toList();
 
         postLikeRepository.deleteByPostId(postId);
-        postCommentRepository.deleteByPostId(postId);
+        commentRepository.deleteByPostId(postId);
         postRepository.delete(post);   // cascades to the media rows and the skill-tag links
 
         mediaUrls.forEach(storageService::delete);
@@ -224,17 +221,16 @@ public class PostServiceImpl implements PostService {
     @Override
     @Transactional
     public PostResponse likePost(Long userId, Long postId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-
-        Post post = findPost(postId);
-
-        if (postLikeRepository.existsByPostIdAndUserId(postId, userId)) {
-            throw new AlreadyExistsException("You have already liked this post");
+        if (!userRepository.existsById(userId)) {
+            throw new ResourceNotFoundException("User not found");
         }
+        findPost(postId);
 
-        postLikeRepository.save(PostLike.builder().post(post).user(user).build());
-        postRepository.incrementLikeCount(postId);
+        // The INSERT ... ON CONFLICT DO NOTHING is atomic: when the same user sends this twice at once, exactly
+        // one request inserts a row and only that one bumps the counter, so likeCount always equals the row count.
+        if (postLikeRepository.insertIfAbsent(postId, userId, LocalDateTime.now()) == 1) {
+            postRepository.incrementLikeCount(postId);
+        }
 
         return toResponse(findPost(postId), userId);
     }
@@ -244,55 +240,21 @@ public class PostServiceImpl implements PostService {
     public void unlikePost(Long userId, Long postId) {
         findPost(postId);
 
-        PostLike like = postLikeRepository.findByPostIdAndUserId(postId, userId)
-                .orElseThrow(() -> new ResourceNotFoundException("You have not liked this post"));
-
-        postLikeRepository.delete(like);
-        postRepository.decrementLikeCount(postId);
-    }
-
-    // ---------------------------------------------------------------- comments
-
-    @Override
-    @Transactional
-    public CommentResponse addComment(Long userId, Long postId, CreateCommentRequest request) {
-        User author = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-
-        Post post = findPost(postId);
-
-        PostComment comment = PostComment.builder()
-                .post(post)
-                .author(author)
-                .content(request.getContent().trim())
-                .build();
-
-        comment = postCommentRepository.save(comment);
-        postRepository.incrementCommentCount(postId);
-        return dtoMapper.toCommentResponse(comment);
+        // DELETE reports whether a row was really removed, so a repeated or concurrent unlike cannot double-decrement
+        if (postLikeRepository.deleteLike(postId, userId) == 1) {
+            postRepository.decrementLikeCount(postId);
+        }
     }
 
     @Override
-    public List<CommentResponse> getComments(Long postId) {
+    @Transactional(readOnly = true)
+    public List<UserResponse> getLikes(Long postId, int page, int size) {
+        Pageable pageable = PaginationUtil.toPageable(page, size);
         findPost(postId);
 
-        return postCommentRepository.findByPostIdOrderByCreatedAtAsc(postId).stream()
-                .map(dtoMapper::toCommentResponse)
+        return postLikeRepository.findByPostIdOrderByCreatedAtDescIdDesc(postId, pageable).stream()
+                .map(like -> dtoMapper.toPublicUserResponse(like.getUser()))
                 .toList();
-    }
-
-    @Override
-    @Transactional
-    public void deleteComment(Long userId, Long postId, Long commentId) {
-        PostComment comment = postCommentRepository.findByIdAndPostId(commentId, postId)
-                .orElseThrow(() -> new ResourceNotFoundException("Comment not found"));
-
-        if (!comment.getAuthor().getId().equals(userId)) {
-            throw new ResourceNotFoundException("Comment not found");
-        }
-
-        postCommentRepository.delete(comment);
-        postRepository.decrementCommentCount(postId);
     }
 
     // ----------------------------------------------------------------- helpers

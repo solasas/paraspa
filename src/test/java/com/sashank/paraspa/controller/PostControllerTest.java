@@ -37,6 +37,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -251,6 +252,71 @@ class PostControllerTest {
                 .andExpect(status().isOk());
 
         verify(postService).getUserPosts(1L, 2L, null, 20);
+    }
+
+    // ------------------------------------------------------------------- likes
+
+    @Test
+    void putLike_shouldReturn200WithTheUpdatedPost_notCreated() throws Exception {
+        when(postService.likePost(1L, 100L))
+                .thenReturn(PostResponse.builder().id(100L).likeCount(3).likedByMe(true).build());
+
+        mvc.perform(put("/api/posts/100/like").requestAttr("userId", 1L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.likeCount").value(3))
+                .andExpect(jsonPath("$.likedByMe").value(true));
+    }
+
+    @Test
+    void postLike_isNoLongerSupported() throws Exception {
+        mvc.perform(post("/api/posts/100/like").requestAttr("userId", 1L))
+                .andExpect(status().isMethodNotAllowed());
+    }
+
+    @Test
+    void deleteLike_shouldReturn204WithNoBody() throws Exception {
+        mvc.perform(delete("/api/posts/100/like").requestAttr("userId", 1L))
+                .andExpect(status().isNoContent());
+
+        verify(postService).unlikePost(1L, 100L);
+    }
+
+    @Test
+    void putLike_shouldReturn404_whenPostMissing() throws Exception {
+        when(postService.likePost(1L, 99L)).thenThrow(new ResourceNotFoundException("Post not found"));
+
+        mvc.perform(put("/api/posts/99/like").requestAttr("userId", 1L)).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void getLikes_shouldDefaultToFirstPageOfTwenty_andNotExposeEmails() throws Exception {
+        when(postService.getLikes(anyLong(), anyInt(), anyInt())).thenReturn(List.of(
+                com.sashank.paraspa.dto.response.UserResponse.builder().id(5L).name("Ben").build()));
+
+        mvc.perform(get("/api/posts/100/likes").requestAttr("userId", 1L))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("Ben"))
+                .andExpect(jsonPath("$[0].email").value((Object) null));
+
+        verify(postService).getLikes(100L, 0, 20);
+    }
+
+    @Test
+    void getLikes_shouldPassPageAndSize_andReturn400ForBadValues() throws Exception {
+        when(postService.getLikes(100L, 2, 50)).thenReturn(List.of());
+        when(postService.getLikes(100L, 0, 500)).thenThrow(new BadRequestException("page must be >= 0 and size must be between 1 and 100"));
+
+        mvc.perform(get("/api/posts/100/likes").requestAttr("userId", 1L).param("page", "2").param("size", "50"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/posts/100/likes").requestAttr("userId", 1L).param("size", "500"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void oldCommentRoutesLeftOnPostController_areGone() throws Exception {
+        // comments are handled by CommentController now; the old per-post delete URL no longer exists here
+        assertThat(java.util.Arrays.stream(PostController.class.getDeclaredMethods()).map(java.lang.reflect.Method::getName))
+                .doesNotContain("addComment", "getComments", "deleteComment");
     }
 
     @SuppressWarnings("unused")

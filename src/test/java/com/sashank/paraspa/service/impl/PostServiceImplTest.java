@@ -1,19 +1,15 @@
 package com.sashank.paraspa.service.impl;
 
-import com.sashank.paraspa.dto.request.CreateCommentRequest;
 import com.sashank.paraspa.dto.response.CursorPageResponse;
 import com.sashank.paraspa.dto.response.PostResponse;
 import com.sashank.paraspa.entity.Post;
-import com.sashank.paraspa.entity.PostComment;
-import com.sashank.paraspa.entity.PostLike;
 import com.sashank.paraspa.entity.PostMedia;
 import com.sashank.paraspa.entity.Skill;
 import com.sashank.paraspa.entity.User;
-import com.sashank.paraspa.exception.AlreadyExistsException;
 import com.sashank.paraspa.exception.BadRequestException;
 import com.sashank.paraspa.exception.ResourceNotFoundException;
 import com.sashank.paraspa.repository.FollowRepository;
-import com.sashank.paraspa.repository.PostCommentRepository;
+import com.sashank.paraspa.repository.CommentRepository;
 import com.sashank.paraspa.repository.PostLikeRepository;
 import com.sashank.paraspa.repository.PostRepository;
 import com.sashank.paraspa.repository.SkillRepository;
@@ -62,7 +58,7 @@ class PostServiceImplTest {
 
     @Mock private PostRepository postRepository;
     @Mock private PostLikeRepository postLikeRepository;
-    @Mock private PostCommentRepository postCommentRepository;
+    @Mock private CommentRepository commentRepository;
     @Mock private FollowRepository followRepository;
     @Mock private UserRepository userRepository;
     @Mock private SkillRepository skillRepository;
@@ -388,9 +384,9 @@ class PostServiceImplTest {
 
         postService.deletePost(1L, 100L);
 
-        InOrder order = inOrder(postLikeRepository, postCommentRepository, postRepository, storageService);
+        InOrder order = inOrder(postLikeRepository, commentRepository, postRepository, storageService);
         order.verify(postLikeRepository).deleteByPostId(100L);
-        order.verify(postCommentRepository).deleteByPostId(100L);
+        order.verify(commentRepository).deleteByPostId(100L);
         order.verify(postRepository).delete(post);     // media rows go with it via cascade
         order.verify(storageService).delete("/files/posts/a.png");
         order.verify(storageService).delete("/files/posts/b.png");
@@ -600,101 +596,170 @@ class PostServiceImplTest {
         assertThatThrownBy(() -> postService.getFeed(1L, null, 0, 0)).isInstanceOf(BadRequestException.class);
     }
 
-    // ================================================================ likes / comments
+    // ======================================================================== likes
 
     @Test
-    void likePost_shouldThrowAlreadyExistsException_andNotTouchTheCounter() {
-        when(userRepository.findById(1L)).thenReturn(Optional.of(author));
-        when(postRepository.findById(100L)).thenReturn(Optional.of(Post.builder().id(100L).build()));
+    void likePost_shouldInsertTheLikeThenIncrementTheCounter_whenNewLike() {
+        Post post = Post.builder().id(100L).author(User.builder().id(2L).build()).build();
+        when(userRepository.existsById(1L)).thenReturn(true);
+        when(postRepository.findById(100L)).thenReturn(Optional.of(post));
+        when(postLikeRepository.insertIfAbsent(eq(100L), eq(1L), any(LocalDateTime.class))).thenReturn(1);
         when(postLikeRepository.existsByPostIdAndUserId(100L, 1L)).thenReturn(true);
+        when(dtoMapper.toPostResponse(post, true)).thenReturn(PostResponse.builder().id(100L).likedByMe(true).build());
 
-        assertThatThrownBy(() -> postService.likePost(1L, 100L))
-                .isInstanceOf(AlreadyExistsException.class)
-                .hasMessage("You have already liked this post");
+        PostResponse response = postService.likePost(1L, 100L);
 
-        verify(postLikeRepository, never()).save(any());
-        verify(postRepository, never()).incrementLikeCount(any());
+        InOrder order = inOrder(postLikeRepository, postRepository);
+        order.verify(postLikeRepository).insertIfAbsent(eq(100L), eq(1L), any(LocalDateTime.class));
+        order.verify(postRepository).incrementLikeCount(100L);
+        assertThat(response.isLikedByMe()).isTrue();
     }
 
     @Test
-    void likePost_shouldSaveTheLikeThenIncrementTheCounterAtomically() {
-        Post post = Post.builder().id(100L).build();
-        when(userRepository.findById(1L)).thenReturn(Optional.of(author));
+    void likePost_shouldBeIdempotent_whenAlreadyLiked() {
+        Post post = Post.builder().id(100L).author(User.builder().id(2L).build()).likeCount(5).build();
+        when(userRepository.existsById(1L)).thenReturn(true);
         when(postRepository.findById(100L)).thenReturn(Optional.of(post));
-        when(postLikeRepository.existsByPostIdAndUserId(100L, 1L)).thenReturn(false, true);
+        // the row already exists, so the insert reports 0 rows
+        when(postLikeRepository.insertIfAbsent(eq(100L), eq(1L), any(LocalDateTime.class))).thenReturn(0);
+        when(postLikeRepository.existsByPostIdAndUserId(100L, 1L)).thenReturn(true);
+        when(dtoMapper.toPostResponse(post, true)).thenReturn(PostResponse.builder().likeCount(5).likedByMe(true).build());
+
+        PostResponse response = postService.likePost(1L, 100L);   // no exception: a repeat is not an error
+
+        verify(postRepository, never()).incrementLikeCount(any());   // the counter must not move
+        assertThat(response.getLikeCount()).isEqualTo(5);
+        assertThat(response.isLikedByMe()).isTrue();
+    }
+
+    @Test
+    void likePost_calledTwiceInARow_shouldIncrementOnlyOnce() {
+        Post post = Post.builder().id(100L).author(User.builder().id(2L).build()).build();
+        when(userRepository.existsById(1L)).thenReturn(true);
+        when(postRepository.findById(100L)).thenReturn(Optional.of(post));
+        when(postLikeRepository.insertIfAbsent(eq(100L), eq(1L), any(LocalDateTime.class))).thenReturn(1, 0);
+        when(postLikeRepository.existsByPostIdAndUserId(100L, 1L)).thenReturn(true);
         when(dtoMapper.toPostResponse(any(Post.class), anyBoolean())).thenReturn(PostResponse.builder().build());
 
         postService.likePost(1L, 100L);
+        postService.likePost(1L, 100L);
 
-        ArgumentCaptor<PostLike> like = ArgumentCaptor.forClass(PostLike.class);
-        InOrder order = inOrder(postLikeRepository, postRepository);
-        order.verify(postLikeRepository).save(like.capture());
-        order.verify(postRepository).incrementLikeCount(100L);
-        assertThat(like.getValue().getPost()).isEqualTo(post);
-        assertThat(like.getValue().getUser()).isEqualTo(author);
+        verify(postRepository, org.mockito.Mockito.times(1)).incrementLikeCount(100L);
     }
 
     @Test
-    void unlikePost_shouldThrowResourceNotFoundException_andNotTouchTheCounter() {
-        when(postRepository.findById(100L)).thenReturn(Optional.of(Post.builder().id(100L).build()));
-        when(postLikeRepository.findByPostIdAndUserId(100L, 1L)).thenReturn(Optional.empty());
+    void likePost_shouldThrowResourceNotFoundException_whenPostMissing() {
+        when(userRepository.existsById(1L)).thenReturn(true);
+        when(postRepository.findById(100L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> postService.unlikePost(1L, 100L))
+        assertThatThrownBy(() -> postService.likePost(1L, 100L))
                 .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessage("You have not liked this post");
+                .hasMessage("Post not found");
+
+        verify(postLikeRepository, never()).insertIfAbsent(any(), any(), any());
+    }
+
+    @Test
+    void likePost_shouldThrowResourceNotFoundException_whenUserMissing() {
+        when(userRepository.existsById(1L)).thenReturn(false);
+
+        assertThatThrownBy(() -> postService.likePost(1L, 100L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("User not found");
+
+        verify(postLikeRepository, never()).insertIfAbsent(any(), any(), any());
+    }
+
+    @Test
+    void unlikePost_shouldDeleteTheLikeThenDecrementTheCounter_whenLiked() {
+        when(postRepository.findById(100L)).thenReturn(Optional.of(Post.builder().id(100L).build()));
+        when(postLikeRepository.deleteLike(100L, 1L)).thenReturn(1);
+
+        postService.unlikePost(1L, 100L);
+
+        InOrder order = inOrder(postLikeRepository, postRepository);
+        order.verify(postLikeRepository).deleteLike(100L, 1L);
+        order.verify(postRepository).decrementLikeCount(100L);
+    }
+
+    @Test
+    void unlikePost_shouldBeIdempotent_whenNotLiked() {
+        when(postRepository.findById(100L)).thenReturn(Optional.of(Post.builder().id(100L).build()));
+        when(postLikeRepository.deleteLike(100L, 1L)).thenReturn(0);
+
+        postService.unlikePost(1L, 100L);   // no exception
 
         verify(postRepository, never()).decrementLikeCount(any());
     }
 
     @Test
-    void unlikePost_shouldDeleteTheLikeAndDecrementTheCounter() {
-        PostLike like = PostLike.builder().id(5L).build();
+    void unlikePost_calledTwiceInARow_shouldDecrementOnlyOnce() {
         when(postRepository.findById(100L)).thenReturn(Optional.of(Post.builder().id(100L).build()));
-        when(postLikeRepository.findByPostIdAndUserId(100L, 1L)).thenReturn(Optional.of(like));
+        when(postLikeRepository.deleteLike(100L, 1L)).thenReturn(1, 0);
 
         postService.unlikePost(1L, 100L);
+        postService.unlikePost(1L, 100L);
 
-        verify(postLikeRepository).delete(like);
-        verify(postRepository).decrementLikeCount(100L);
+        verify(postRepository, org.mockito.Mockito.times(1)).decrementLikeCount(100L);
     }
 
     @Test
-    void addComment_shouldSaveTrimmedCommentAndIncrementTheCounter() {
-        Post post = Post.builder().id(100L).build();
-        when(userRepository.findById(1L)).thenReturn(Optional.of(author));
-        when(postRepository.findById(100L)).thenReturn(Optional.of(post));
-        when(postCommentRepository.save(any(PostComment.class))).thenAnswer(invocation -> invocation.getArgument(0));
+    void unlikePost_shouldThrowResourceNotFoundException_whenPostMissing() {
+        when(postRepository.findById(100L)).thenReturn(Optional.empty());
 
-        postService.addComment(1L, 100L, CreateCommentRequest.builder().content(" nice ").build());
-
-        ArgumentCaptor<PostComment> captor = ArgumentCaptor.forClass(PostComment.class);
-        verify(postCommentRepository).save(captor.capture());
-        assertThat(captor.getValue().getContent()).isEqualTo("nice");
-        assertThat(captor.getValue().getPost()).isEqualTo(post);
-        verify(postRepository).incrementCommentCount(100L);
-    }
-
-    @Test
-    void deleteComment_shouldThrowResourceNotFoundException_whenNotCommentAuthor() {
-        PostComment comment = PostComment.builder().id(5L).author(User.builder().id(2L).build()).build();
-        when(postCommentRepository.findByIdAndPostId(5L, 100L)).thenReturn(Optional.of(comment));
-
-        assertThatThrownBy(() -> postService.deleteComment(1L, 100L, 5L))
+        assertThatThrownBy(() -> postService.unlikePost(1L, 100L))
                 .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessage("Comment not found");
+                .hasMessage("Post not found");
 
-        verify(postCommentRepository, never()).delete(any());
-        verify(postRepository, never()).decrementCommentCount(any());
+        verify(postLikeRepository, never()).deleteLike(any(), any());
     }
 
     @Test
-    void deleteComment_shouldDeleteAndDecrementTheCounter_whenAuthor() {
-        PostComment comment = PostComment.builder().id(5L).author(author).build();
-        when(postCommentRepository.findByIdAndPostId(5L, 100L)).thenReturn(Optional.of(comment));
+    void getLikes_shouldReturnPublicUsersForTheRequestedPage() {
+        User liker = User.builder().id(5L).email("liker@example.com").build();
+        com.sashank.paraspa.dto.response.UserResponse mapped =
+                com.sashank.paraspa.dto.response.UserResponse.builder().id(5L).build();
+        when(postRepository.findById(100L)).thenReturn(Optional.of(Post.builder().id(100L).build()));
+        when(postLikeRepository.findByPostIdOrderByCreatedAtDescIdDesc(eq(100L), any(Pageable.class)))
+                .thenReturn(List.of(com.sashank.paraspa.entity.PostLike.builder().user(liker).build()));
+        when(dtoMapper.toPublicUserResponse(liker)).thenReturn(mapped);
 
-        postService.deleteComment(1L, 100L, 5L);
+        assertThat(postService.getLikes(100L, 2, 30)).containsExactly(mapped);
 
-        verify(postCommentRepository).delete(comment);
-        verify(postRepository).decrementCommentCount(100L);
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(postLikeRepository).findByPostIdOrderByCreatedAtDescIdDesc(eq(100L), pageable.capture());
+        assertThat(pageable.getValue().getPageNumber()).isEqualTo(2);
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(30);
+        verify(dtoMapper, never()).toUserResponse(any());   // the variant that carries the email is never used
+    }
+
+    @Test
+    void getLikes_shouldReturnEmptyListWhenNobodyLiked() {
+        when(postRepository.findById(100L)).thenReturn(Optional.of(Post.builder().id(100L).build()));
+        when(postLikeRepository.findByPostIdOrderByCreatedAtDescIdDesc(eq(100L), any(Pageable.class)))
+                .thenReturn(List.of());
+
+        assertThat(postService.getLikes(100L, 0, 20)).isEmpty();
+    }
+
+    @Test
+    void getLikes_shouldRejectInvalidPagingAndMissingPost() {
+        assertThatThrownBy(() -> postService.getLikes(100L, 0, 101)).isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> postService.getLikes(100L, -1, 20)).isInstanceOf(BadRequestException.class);
+
+        when(postRepository.findById(100L)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> postService.getLikes(100L, 0, 20))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Post not found");
+    }
+
+    @Test
+    void getPost_shouldReportLikedByMeForTheViewer() {
+        Post post = Post.builder().id(100L).author(User.builder().id(2L).build()).build();
+        when(postRepository.findById(100L)).thenReturn(Optional.of(post));
+        when(postLikeRepository.existsByPostIdAndUserId(100L, 1L)).thenReturn(true);
+        when(dtoMapper.toPostResponse(post, true)).thenReturn(PostResponse.builder().likedByMe(true).build());
+
+        assertThat(postService.getPost(1L, 100L).isLikedByMe()).isTrue();
     }
 }

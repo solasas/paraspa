@@ -1,10 +1,9 @@
 package com.sashank.paraspa.controller;
 
-import com.sashank.paraspa.dto.request.CreateCommentRequest;
 import com.sashank.paraspa.dto.request.CreatePostRequest;
-import com.sashank.paraspa.dto.response.CommentResponse;
 import com.sashank.paraspa.dto.response.CursorPageResponse;
 import com.sashank.paraspa.dto.response.PostResponse;
+import com.sashank.paraspa.dto.response.UserResponse;
 import com.sashank.paraspa.service.PostService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -84,14 +83,15 @@ public class PostController {
         return ResponseEntity.ok(postService.getUserPosts(userId, authorId, cursor, size));
     }
 
-    @PostMapping("/posts/{postId}/like")
+    /** Idempotent: liking an already liked post is a no-op that still returns 200 with the current counts. */
+    @PutMapping("/posts/{postId}/like")
     public ResponseEntity<PostResponse> likePost(
             @RequestAttribute("userId") Long userId,
             @PathVariable Long postId) {
-        PostResponse response = postService.likePost(userId, postId);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        return ResponseEntity.ok(postService.likePost(userId, postId));
     }
 
+    /** Idempotent: removing a like you do not have is a no-op (204). */
     @DeleteMapping("/posts/{postId}/like")
     public ResponseEntity<Void> unlikePost(
             @RequestAttribute("userId") Long userId,
@@ -100,26 +100,11 @@ public class PostController {
         return ResponseEntity.noContent().build();
     }
 
-    @PostMapping("/posts/{postId}/comments")
-    public ResponseEntity<CommentResponse> addComment(
-            @RequestAttribute("userId") Long userId,
+    @GetMapping("/posts/{postId}/likes")
+    public ResponseEntity<List<UserResponse>> getLikes(
             @PathVariable Long postId,
-            @Valid @RequestBody CreateCommentRequest request) {
-        CommentResponse response = postService.addComment(userId, postId, request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
-    }
-
-    @GetMapping("/posts/{postId}/comments")
-    public ResponseEntity<List<CommentResponse>> getComments(@PathVariable Long postId) {
-        return ResponseEntity.ok(postService.getComments(postId));
-    }
-
-    @DeleteMapping("/posts/{postId}/comments/{commentId}")
-    public ResponseEntity<Void> deleteComment(
-            @RequestAttribute("userId") Long userId,
-            @PathVariable Long postId,
-            @PathVariable Long commentId) {
-        postService.deleteComment(userId, postId, commentId);
-        return ResponseEntity.noContent().build();
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(postService.getLikes(postId, page, size));
     }
 }

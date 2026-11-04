@@ -1,9 +1,8 @@
 package com.sashank.paraspa.service;
 
-import com.sashank.paraspa.dto.request.CreateCommentRequest;
-import com.sashank.paraspa.dto.response.CommentResponse;
 import com.sashank.paraspa.dto.response.CursorPageResponse;
 import com.sashank.paraspa.dto.response.PostResponse;
+import com.sashank.paraspa.dto.response.UserResponse;
 import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 
@@ -26,9 +25,12 @@ public interface PostService {
     /** An author's posts, newest first, paged with a (createdAt, id) cursor. */
     CursorPageResponse<PostResponse> getUserPosts(Long viewerId, Long authorId, String cursor, int size);
 
+    /** Idempotent: liking a post you already like changes nothing. Returns the post with its current counts. */
     PostResponse likePost(Long userId, Long postId);
+
+    /** Idempotent: removing a like you do not have changes nothing. */
     void unlikePost(Long userId, Long postId);
-    CommentResponse addComment(Long userId, Long postId, CreateCommentRequest request);
-    List<CommentResponse> getComments(Long postId);
-    void deleteComment(Long userId, Long postId, Long commentId);
+
+    /** The users who liked the post, most recent like first. */
+    List<UserResponse> getLikes(Long postId, int page, int size);
 }

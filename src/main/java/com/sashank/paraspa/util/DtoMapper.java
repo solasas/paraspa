@@ -186,13 +186,14 @@ public class DtoMapper {
                 .build();
     }
 
-    public CommentResponse toCommentResponse(PostComment comment) {
+    public CommentResponse toCommentResponse(Comment comment) {
         if (comment == null) {
             return null;
         }
         return CommentResponse.builder()
                 .id(comment.getId())
                 .postId(comment.getPost().getId())
+                .parentId(comment.getParent() == null ? null : comment.getParent().getId())
                 .author(toPublicUserResponse(comment.getAuthor()))
                 .content(comment.getContent())
                 .createdAt(comment.getCreatedAt())

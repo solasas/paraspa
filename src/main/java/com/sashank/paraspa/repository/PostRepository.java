@@ -53,7 +53,9 @@ public interface PostRepository extends JpaRepository<Post, Long> {
     @Query("UPDATE Post p SET p.commentCount = p.commentCount + 1 WHERE p.id = :id")
     int incrementCommentCount(@Param("id") Long id);
 
+    /** Lowers the count by {@code n} (a deleted comment plus its replies), never below zero. */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
-    @Query("UPDATE Post p SET p.commentCount = p.commentCount - 1 WHERE p.id = :id AND p.commentCount > 0")
-    int decrementCommentCount(@Param("id") Long id);
+    @Query("UPDATE Post p SET p.commentCount = CASE WHEN p.commentCount > :n THEN p.commentCount - :n ELSE 0 END "
+            + "WHERE p.id = :id")
+    int decrementCommentCount(@Param("id") Long id, @Param("n") long n);
 }

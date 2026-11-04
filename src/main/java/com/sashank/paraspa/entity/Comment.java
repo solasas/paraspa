@@ -4,21 +4,29 @@ import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 import java.time.LocalDateTime;
 
+/**
+ * A comment on a post. {@code parent} is null for a top-level comment and points at a top-level comment
+ * of the same post for a reply (one level only; the service rejects replies to replies).
+ */
 @Entity
-@Table(name = "post_comments")
+@Table(name = "comments")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class PostComment {
+public class Comment {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "post_id", nullable = false)
     private Post post;
 
@@ -26,6 +34,14 @@ public class PostComment {
     @JoinColumn(name = "author_id", nullable = false)
     private User author;
 
+    /** Null for top-level comments. Deleting the parent deletes its replies (database cascade). */
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "parent_id")
+    private Comment parent;
+
+    /** Up to 500 characters for new comments (older comments may be longer). */
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
