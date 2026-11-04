@@ -24,7 +24,7 @@ paraspa lets people trade skills: "I teach guitar, I want to learn Python."
 | 11 | **Ratings** | After a session is completed, each participant rates the other 1–5 with optional review. Rating summary + star breakdown per user. |
 | 12 | **Chat** | 1-to-1 messaging: REST for history/conversation list/unread count, STOMP WebSocket for live delivery. |
 | 13 | **Follows** | Follow / unfollow users (idempotent); paginated follower and following lists; follow status in both directions; follower/following counts on the public profile. |
-| 14 | **Posts & feed** | Post text and/or up to 4 images, tagged with up to 3 skills. Explore all posts or a feed of people I follow (+ my own), optionally filtered by skill tag. A user's posts are cursor-paginated. Like and comment. |
+| 14 | **Posts & feed** | Post text and/or up to 4 images, tagged with up to 3 skills. Explore all posts or a feed of people I follow (+ my own), optionally filtered by skill tag. A user's posts are cursor-paginated. Like (idempotent) and comment, with one level of replies. |
 | 15 | **Public profiles & avatars** | `GET /users/{id}` returns another user's public profile (never the email). Users upload a profile picture (JPG/PNG/WebP, ≤ 2 MB). |
 
 ---
@@ -55,11 +55,11 @@ Most list endpoints take `?page=0&size=20` (`page` is zero-based, **default size
 
 The response is still a plain JSON array. There is no total count: keep requesting `page + 1` until a page comes back with **fewer than `size`** items (or empty).
 
-Paginated today: `GET /users/search`, `GET /exchanges`, `/exchanges/sent`, `/exchanges/received`, `GET /messages/conversations/{userId}`, `GET /users/{id}/followers`, `GET /users/{id}/following`, `GET /posts`, `/posts/feed`.
-**Cursor-paginated** (envelope below): `GET /users/{id}/posts`.
-**Not** paginated yet: matches, skills, comments, ratings, `GET /messages/conversations` (inbox list), sessions.
+Paginated today: `GET /users/search`, `GET /exchanges`, `/exchanges/sent`, `/exchanges/received`, `GET /messages/conversations/{userId}`, `GET /users/{id}/followers`, `GET /users/{id}/following`, `GET /posts`, `/posts/feed`, `GET /posts/{id}/likes`.
+**Cursor-paginated** (envelope below): `GET /users/{id}/posts`, `GET /posts/{id}/comments`.
+**Not** paginated yet: matches, skills, ratings, `GET /messages/conversations` (inbox list), sessions.
 
-**Cursor pagination.** New list endpoints, and `GET /users/{id}/posts`, return this envelope instead of an array:
+**Cursor pagination.** New list endpoints, `GET /users/{id}/posts` and `GET /posts/{id}/comments` return this envelope instead of an array:
 ```json
 { "items": [ /* … */ ], "nextCursor": "MTIz" }
 ```
@@ -94,7 +94,7 @@ Validation errors: `status 400`, `error: "Validation Error"`, `message` = `"fiel
 |--------|------|
 | 400 | Validation failure, **and** all business-rule violations (wrong user, wrong state), **and wrong login credentials** |
 | 404 | Resource not found, **or** you aren't a participant of the exchange/session you asked for (the server doesn't reveal that it exists) |
-| 409 | Email already registered; already liked / skill already added; or any database uniqueness conflict (e.g. a double-tapped request) |
+| 409 | Email already registered; skill already added; or any database conflict (e.g. replying to a comment at the moment it is deleted). Liking, unliking and following are idempotent and never return 409 |
 | 401 | Declared in handler but business code mostly uses 400 — don't rely on it |
 | 403 / 401 | Missing/invalid/expired JWT on a protected route. No custom entry point is configured, so Spring's default applies (expect **403 with an empty body**; not verified by running the server). Treat 401 **and** 403 as "log in again". |
 | 500 | Unhandled |
@@ -405,11 +405,12 @@ UI: show Accept/Reject only when `status === "PENDING"` and `requestedBy.id !== 
 | GET | `/api/posts/{postId}` | | 200 `PostResponse` |
 | DELETE | `/api/posts/{postId}` | author only | **204** |
 | GET | `/api/users/{userId}/posts` | one user's posts, newest first. Query: `cursor?`, `size` | 200 `{ items: PostResponse[], nextCursor }` |
-| POST | `/api/posts/{postId}/like` | none | **201** `PostResponse` (updated counts) |
-| DELETE | `/api/posts/{postId}/like` | | **204** |
-| POST | `/api/posts/{postId}/comments` | `{ content (required, ≤ 1000 chars) }` | **201** `CommentResponse` |
-| GET | `/api/posts/{postId}/comments` | oldest first, not paginated | 200 `CommentResponse[]` |
-| DELETE | `/api/posts/{postId}/comments/{commentId}` | comment author only | **204** |
+| PUT | `/api/posts/{postId}/like` | none. **Idempotent** | **200** `PostResponse` (current counts, `likedByMe: true`) |
+| DELETE | `/api/posts/{postId}/like` | none. **Idempotent** | **204** |
+| GET | `/api/posts/{postId}/likes` | who liked it, most recent like first. Query: `page`, `size` | 200 `UserResponse[]` |
+| POST | `/api/posts/{postId}/comments` | `{ content (required, ≤ 500 chars), parentId? }` | **201** `CommentResponse` |
+| GET | `/api/posts/{postId}/comments` | top-level comments, oldest first, replies nested. Query: `cursor?`, `size` | 200 `{ items: CommentResponse[], nextCursor }` |
+| DELETE | `/api/comments/{commentId}` | comment author **or** post author | **204** |
 
 ```json
 // PostResponse
@@ -423,8 +424,12 @@ UI: show Accept/Reject only when `status === "PENDING"` and `requestedBy.id !== 
 // GET /api/users/{id}/posts
 { "items": [ /* PostResponse, newest first */ ], "nextCursor": "MjAyNi0xMS0wNFQxMjowMHw3" }
 
-// CommentResponse
-{ "id": 7, "postId": 10, "author": { /* UserResponse */ }, "content": "Nice!", "createdAt": "…" }
+// CommentResponse (top-level comment with its replies nested one level)
+{ "id": 7, "postId": 10, "parentId": null, "author": { /* UserResponse, email is null */ },
+  "content": "Nice!", "createdAt": "…",
+  "replies": [
+    { "id": 9, "postId": 10, "parentId": 7, "author": { /* … */ }, "content": "Agreed", "createdAt": "…", "replies": [] }
+  ] }
 ```
 
 **Creating a post.** A post needs **text and/or at least one image**; skill tags are optional.
@@ -446,14 +451,30 @@ UI: show Accept/Reject only when `status === "PENDING"` and `requestedBy.id !== 
 - `media[].position` is 0-based and already sorted; `url` is a root-relative path, prefix it with the base URL (see [Files](#files-avatars)). Image files are public, like avatars.
 
 **Behaviour**
-- `likeCount` and `commentCount` come straight from the post (no extra work for the server per request); they change by exactly one per like/unlike/comment/delete-comment, even when many people act at once.
-- Liking twice → **409** `You have already liked this post`. Unliking a post you haven't liked → 404.
-- Deleting someone else's post or comment returns **404**, not 403. Show the delete button only when `author.id === me.id`.
+- `likeCount` and `commentCount` come straight from the post (no extra work for the server per request). They are exact even when many people act at the same time.
+- `likedByMe` is in every `PostResponse` (single post, feed, explore, a user's posts and the response of `PUT /like`): it is `true` when the logged-in user liked that post.
+- Deleting someone else's post returns **404**, not 403. Show the post's delete button only when `author.id === me.id`.
+
+**Likes** (`PUT` / `DELETE /api/posts/{id}/like`)
+- Both are **idempotent**, so a double tap or a retry after a timeout is safe and never needs error handling: `PUT` on a post you already like returns **200** with unchanged counts (it is *not* a 409 any more), and `DELETE` on a post you don't like is a **204** no-op. The counter moves by exactly one only when a like is really added or removed, however many identical requests arrive together.
+- The usual pattern: flip `likedByMe` and `likeCount` locally, send `PUT` or `DELETE`, and replace your local post with the `PUT` response (or ignore the `DELETE` response, it has no body).
+- A post that doesn't exist → **404** for `PUT`, `DELETE` and `GET /likes`.
+- `GET /posts/{id}/likes` lists the users (no emails), most recent like first, with the usual `page` / `size` rules.
+
+**Comments and replies**
+- One level of replies only. To reply, send the **top-level** comment's id as `parentId`. Replying to a reply is **400** `Replies can only be one level deep: reply to the top-level comment` (send the *top-level* comment's id instead; show "replying to @name" in the UI if you want). A `parentId` that doesn't exist, or belongs to another post, is **404** `Parent comment not found`.
+- `content` is trimmed and must be 1 to **500** characters (400 otherwise). Older comments written before this limit can be longer.
+- `GET /posts/{id}/comments` returns the post's **top-level** comments oldest first, **cursor-paginated** (see [Pagination](#pagination); `size` default 20, max 100), and each one carries **all** its replies in `replies`, oldest first. The paging counts top-level comments only. Replies on a reply object are always `[]`. An unknown post → 404.
+- Comment ids only ever grow, so new comments appear at the end of the last page; to show a comment you just posted, append the `POST` response yourself (to its parent's `replies` for a reply).
+- `commentCount` on the post counts **every** comment, replies included.
+- `DELETE /api/comments/{id}` (note: no post id in the URL) is allowed for the **comment's author** and for the **post's author** (so a post owner can moderate their own post). Anyone else gets **404** `Comment not found`, the same as for a comment that doesn't exist. Deleting a top-level comment **also deletes all its replies**, and `commentCount` drops by the comment plus its replies. Show the delete button when `comment.author.id === me.id || post.author.id === me.id`.
+- Replying to a thread at the very moment it is deleted can return **409**; just reload the comments.
 - Deleting a post also deletes its likes, comments, skill tags, image rows **and the image files** (those URLs then return 404).
 - `GET /api/users/{id}/posts`: first page without `cursor`; keep sending the returned `nextCursor` until it is `null`. An unknown user → 404. Because the cursor is a position, not a page number, posts created or deleted while you scroll never cause duplicates or gaps.
 - `GET /api/posts` and `/api/posts/feed` still use `page`/`size`; their `skillId` filter now matches **any** of a post's tags.
 - Posts are visible to every logged-in user (there are no private posts). `skillId` values come from `GET /api/skills`.
 - **Changed from the first version of this API:** the single required `skillId` is now an optional `skillIds` list (and `PostResponse.skill` is now `skills[]`); `content` is optional when images are attached and can be `null` in responses; `PostResponse` gained `media`; and `GET /users/{id}/posts` now returns the cursor envelope instead of an array and ignores `page`. Existing posts keep their old skill as a single tag.
+- **Changed in the engagement update:** `POST /posts/{id}/like` is gone (**405**; use `PUT`, which is idempotent and returns **200** instead of 201 / 409). `DELETE /posts/{postId}/comments/{commentId}` is replaced by `DELETE /comments/{commentId}` (the old URL is a 404). `GET /posts/{id}/comments` now returns the cursor envelope with nested `replies` instead of a flat array, comments are limited to 500 characters (was 1000), and `CommentResponse` gained `parentId` and `replies`.
 
 ### 4.15 Public profile
 
@@ -541,9 +562,9 @@ Keep unread badges in sync: increment on incoming messages where `sender.id !== 
 | Session detail | `GET /sessions/{id}`, `PUT …/complete`, `PUT …/cancel`, reschedule endpoints, `POST /sessions/{id}/ratings` |
 | Inbox | `GET /messages/conversations`, `GET /messages/unread-count`, WebSocket |
 | Chat thread | `GET /messages/conversations/{id}`, WebSocket `/app/chat.send` |
-| Home feed | `GET /posts/feed[?skillId&page&size]`, `POST /posts` (JSON, or multipart with images), `POST/DELETE /posts/{id}/like` |
+| Home feed | `GET /posts/feed[?skillId&page&size]`, `POST /posts` (JSON, or multipart with images), `PUT/DELETE /posts/{id}/like` |
 | Explore / by skill | `GET /posts[?skillId&page&size]` |
-| Post detail | `GET /posts/{id}`, `GET/POST /posts/{id}/comments`, `DELETE /posts/{id}/comments/{commentId}`, `DELETE /posts/{id}` |
+| Post detail | `GET /posts/{id}`, `GET /posts/{id}/comments[?cursor&size]`, `POST /posts/{id}/comments` (with `parentId` to reply), `DELETE /comments/{id}`, `DELETE /posts/{id}`, `GET /posts/{id}/likes` (who liked) |
 | Follow lists / profile header | `GET /users/{id}/follow-status`, `/users/{id}/followers`, `/users/{id}/following`, `PUT/DELETE /users/{id}/follow`, `GET /users/{id}/posts[?cursor&size]` (cursor-paginated: profile post grid / infinite scroll) |
 
 ---
@@ -556,7 +577,7 @@ Keep unread badges in sync: increment on incoming messages where `sender.id !== 
 - No notifications endpoint; poll or use the chat socket for message badges.
 - Pagination is not universal: see the list in [Pagination](#pagination). Endpoints not on that list return everything.
 - No delete/edit for exchanges, sessions, messages, ratings. Posts can be deleted but not edited (no changing text, tags or images); comments likewise.
-- No notifications for follows, likes or comments.
+- No notifications for follows, likes, comments or replies.
 
 **Behaviors that surprise**
 - Wrong credentials and every business-rule failure are **400**, not 401/403. Show `message` from the body.
