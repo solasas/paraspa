@@ -28,6 +28,7 @@ git clone https://github.com/solasas/paraspa-mobileapp.git
 - **Public profiles & avatars**: `GET /api/users/{id}` (never exposes email); upload a JPG/PNG/WebP profile picture (max 2 MB), served at `/files/**`
 - **Pagination**: `page`/`size` (default 20, max 100) on search, exchanges, message history, follower lists and the explore/feed lists; cursor pagination (`items` + `nextCursor`, keyed on `createdAt` + `id`) for a user's posts and for new endpoints
 - **Follows**: follow and unfollow users (both idempotent; no self-follows), paginated follower and following lists, follow status, and follower/following counts on the public profile
+- **Feeds**: a home feed (`/api/feed`: people you follow plus you, newest first), trending discovery (`/api/explore`: last 7 days, engagement with time decay, people you do not follow) and suggested people (`/api/explore/people`), all without N+1 queries (5 SQL statements per feed or explore request, 6 for suggestions, measured)
 - **Posts & feed**: text and/or up to 4 images (JPG/PNG/WebP, 2 MB each) with up to 3 skill tags; browse all posts or a feed of people you follow (both filterable by skill tag), a user's posts with cursor pagination, idempotent likes with a liker list, comments with one level of replies (cursor-paginated, nested), and stored counters kept exact under concurrent requests
 
 ## Architecture
@@ -62,6 +63,46 @@ Post ---< Comment >--- User    Comment ---< Comment (replies, one level)
 
 Flow: register, add skills, find a match, send an exchange, accept, schedule sessions, complete, rate.
 
+### Feed design: fan-out on read
+
+There are two classic ways to build a "posts from the people I follow" feed:
+
+| | Fan-out on **write** | Fan-out on **read** (what paraspa does) |
+|---|---|---|
+| When a post is created | copy a reference into every follower's inbox table (`feed_items`) | just insert the post |
+| When the feed is requested | read your own inbox (very cheap) | query the posts of the people you follow, newest first |
+| Cost grows with | followers of the author (one write each) | people *you* follow (one index probe each) |
+| Follow / unfollow / delete post | must back-fill or purge inboxes | takes effect immediately, nothing to repair |
+| Extra storage / background work | a big table plus an async fan-out job | none |
+
+paraspa fans out **on read**. At this size it is both the simplest option and fast, because the work is bounded by a keyset-paginated query that stops after one page rather than scanning anyone's whole history:
+
+- **One selection query** (`FeedQuery`): `author_id IN (follows UNION ALL me)` ordered by `(created_at DESC, id DESC)`, continued from the cursor with a row-value comparison `(created_at, id) < (:t, :id)`. The `(created_at DESC, id DESC)` index added in migration `V7` lets PostgreSQL read posts newest-first and stop as soon as it has a page, so a page costs about the same on page 1 and page 400. Two details were found by measuring, not guessing: the `author = me OR author IN (...)` form is a sequential scan, and the `created_at < t OR (created_at = t AND id < i)` form of the cursor cannot use the index as a range (up to 193 ms vs about 3 ms).
+- **No N+1.** The selection returns only ids. The page's posts are then loaded in one statement with their authors (`JOIN FETCH`), the skill tags and the images of the whole page are loaded by one `IN (...)` query each (`@BatchSize` on `Post.skills` / `Post.media`), and "which of these did I like" is one more query. That is **5 statements per request whether the page holds 5 posts or 100**, from any number of different authors. `FeedServiceImplIntegrationTest` counts every JDBC statement and fails if that number changes.
+- **Cursor, not page numbers.** `nextCursor` is the `(createdAt, id)` of the last post returned, so posts created or deleted while someone scrolls never cause repeats or gaps (ties on the same timestamp are broken by id).
+
+Measured on a laptop with PostgreSQL, 300,000 posts, 3,000 users, one user following 300 people (about 95,000 posts in their scope), through the HTTP API (median of 9, JSON included):
+
+| Request | Time | SQL statements |
+|---|---|---|
+| `GET /api/feed?size=20` | 16 ms | 5 |
+| `GET /api/feed?size=100` | 43 ms | 5 |
+| feed, page 400 (8,000 posts deep) | 31 ms | 5 |
+| `GET /api/explore?size=20` | 62 ms | 5 |
+| `GET /api/explore?size=20&skillId=7` | 35 ms | 5 |
+
+**When to change it.** Read fan-out costs work proportional to how many people a user follows and how active they are. Move to fan-out on write (or a hybrid: write to inboxes for normal accounts, merge celebrities' posts at read time) when feed latency stays high for users who follow thousands of accounts, or when feed reads vastly outnumber writes. The change would be local: a `feed_items(user_id, post_id, created_at)` table filled by an async job, with `FeedQuery` reading it instead of `posts`. The API, cursor format and response do not change.
+
+**Explore** (`GET /api/explore`) is computed per request, not stored: it ranks the posts of the last 7 days from people you do not follow (and not your own) by
+
+```
+score = (likeCount + 2 * commentCount) / (ageInHours + 2) ^ 1.5
+```
+
+so a comment counts as two likes and engagement fades with age (a 2-hour-old post with 3 likes outranks a 6-day-old post with 100). Posts without any engagement stay in the list at the bottom, newest first, so a young community still has something to show. The cost is proportional to the number of posts in the 7-day window, not to the page size: 72 ms for about 48,000 candidate posts. The arithmetic must stay in `DOUBLE PRECISION` (see `TrendingPostQuery`): the same query with untyped literals took 689 ms. Its cursor carries the instant the ranking was computed at (`asOf`), so every page of one scroll is ranked with the same clock; if counts change while scrolling, a post can occasionally move across a page boundary, so clients should skip ids they already have. If the window grows large, compute the scores on a schedule into a table or cache instead.
+
+**Suggested people** (`GET /api/explore/people`) reuses `MatchService` (users whose skills complement yours, mutual matches first, then by user id) and removes everyone you already follow. `MatchService` used to run two queries for every user in the system (6,007 statements and about 1.3 s with 3,000 users); it now loads only the rows that can produce a match, one query per direction (people who teach something you want to learn, people who want to learn something you teach) with the user and skill fetched in the same statement. That is **5 statements however many users exist** (6 for this endpoint with the follow list): 35 ms for the same 3,000 users, and the same speed-up applies to `GET /api/matches` and `/api/matches/mutual`. `MatchServiceImplIntegrationTest` counts the statements and also checks the results against a brute-force version of the old algorithm on random data.
+
 ## API
 
 Full request and response details: [docs/FRONTEND-HANDOFF.md](docs/FRONTEND-HANDOFF.md). All routes need `Authorization: Bearer <token>` except `/api/auth/**`.
@@ -83,6 +124,7 @@ Full request and response details: [docs/FRONTEND-HANDOFF.md](docs/FRONTEND-HAND
 | Ratings | `POST /api/sessions/{id}/ratings`, `GET /api/users/{id}/ratings`, `GET /api/users/{id}/rating-summary`, `GET /api/profile/me/ratings` |
 | Messages | `POST /api/messages`, `GET /api/messages/conversations`, `GET .../conversations/{userId}[?page&size]`, `GET .../unread-count` |
 | Follows | `PUT/DELETE /api/users/{id}/follow`, `GET /api/users/{id}/followers[?page&size]`, `GET /api/users/{id}/following[?page&size]`, `GET /api/users/{id}/follow-status` |
+| Feeds | `GET /api/feed[?cursor&size]` (home feed), `GET /api/explore[?skillId&cursor&size]` (trending), `GET /api/explore/people[?page&size]` (people to follow) |
 | Posts | `POST /api/posts` (JSON `{content, skillIds}` or multipart `content`, `skillIds`, `images`), `GET /api/posts[?skillId&page&size]`, `GET /api/posts/feed[?skillId&page&size]`, `GET/DELETE /api/posts/{id}`, `GET /api/users/{id}/posts[?cursor&size]` (cursor-paginated) |
 | Likes | `PUT/DELETE /api/posts/{id}/like` (both idempotent), `GET /api/posts/{id}/likes[?page&size]` |
 | Comments | `POST /api/posts/{id}/comments` (`{content, parentId?}`, max 500 chars), `GET /api/posts/{id}/comments[?cursor&size]` (cursor-paginated, replies nested one level), `DELETE /api/comments/{id}` (comment author or post author) |
@@ -128,7 +170,7 @@ Defaults live in `src/main/resources/application.properties` and can be overridd
 
 **Uploads:** avatars and post images (2 MB each; a request may carry up to 10 MB) are written to `STORAGE_ROOT` (git-ignored). To use S3 later, add another `StorageService` implementation and set `storage.type`.
 
-**Tests:** `./mvnw test`. Unit tests need no database; `ParaspaApplicationTests` needs PostgreSQL with `paraspa_db`.
+**Tests:** `./mvnw test`. Unit and query-level tests need no database (the feed and explore tests run the real queries on an in-memory H2 database and count SQL statements); `ParaspaApplicationTests` needs PostgreSQL with `paraspa_db`.
 
 ## Errors
 

@@ -26,6 +26,7 @@ paraspa lets people trade skills: "I teach guitar, I want to learn Python."
 | 13 | **Follows** | Follow / unfollow users (idempotent); paginated follower and following lists; follow status in both directions; follower/following counts on the public profile. |
 | 14 | **Posts & feed** | Post text and/or up to 4 images, tagged with up to 3 skills. Explore all posts or a feed of people I follow (+ my own), optionally filtered by skill tag. A user's posts are cursor-paginated. Like (idempotent) and comment, with one level of replies. |
 | 15 | **Public profiles & avatars** | `GET /users/{id}` returns another user's public profile (never the email). Users upload a profile picture (JPG/PNG/WebP, ≤ 2 MB). |
+| 16 | **Feeds** | A home feed (people I follow + me, newest first), a trending Explore tab (last 7 days, people I don't follow) and suggested people to follow. |
 
 ---
 
@@ -56,10 +57,11 @@ Most list endpoints take `?page=0&size=20` (`page` is zero-based, **default size
 The response is still a plain JSON array. There is no total count: keep requesting `page + 1` until a page comes back with **fewer than `size`** items (or empty).
 
 Paginated today: `GET /users/search`, `GET /exchanges`, `/exchanges/sent`, `/exchanges/received`, `GET /messages/conversations/{userId}`, `GET /users/{id}/followers`, `GET /users/{id}/following`, `GET /posts`, `/posts/feed`, `GET /posts/{id}/likes`.
-**Cursor-paginated** (envelope below): `GET /users/{id}/posts`, `GET /posts/{id}/comments`.
+**Cursor-paginated** (envelope below): `GET /feed`, `GET /explore`, `GET /users/{id}/posts`, `GET /posts/{id}/comments`.
+`GET /explore/people` uses `page` / `size`.
 **Not** paginated yet: matches, skills, ratings, `GET /messages/conversations` (inbox list), sessions.
 
-**Cursor pagination.** New list endpoints, `GET /users/{id}/posts` and `GET /posts/{id}/comments` return this envelope instead of an array:
+**Cursor pagination.** New list endpoints, `GET /feed`, `GET /explore`, `GET /users/{id}/posts` and `GET /posts/{id}/comments` return this envelope instead of an array:
 ```json
 { "items": [ /* … */ ], "nextCursor": "MTIz" }
 ```
@@ -471,7 +473,7 @@ UI: show Accept/Reject only when `status === "PENDING"` and `requestedBy.id !== 
 - Replying to a thread at the very moment it is deleted can return **409**; just reload the comments.
 - Deleting a post also deletes its likes, comments, skill tags, image rows **and the image files** (those URLs then return 404).
 - `GET /api/users/{id}/posts`: first page without `cursor`; keep sending the returned `nextCursor` until it is `null`. An unknown user → 404. Because the cursor is a position, not a page number, posts created or deleted while you scroll never cause duplicates or gaps.
-- `GET /api/posts` and `/api/posts/feed` still use `page`/`size`; their `skillId` filter now matches **any** of a post's tags.
+- `GET /api/posts` and `/api/posts/feed` still use `page`/`size`; their `skillId` filter now matches **any** of a post's tags. For the home and explore screens use `GET /api/feed` and `GET /api/explore` instead (4.16): cursor-paginated and cheaper.
 - Posts are visible to every logged-in user (there are no private posts). `skillId` values come from `GET /api/skills`.
 - **Changed from the first version of this API:** the single required `skillId` is now an optional `skillIds` list (and `PostResponse.skill` is now `skills[]`); `content` is optional when images are attached and can be `null` in responses; `PostResponse` gained `media`; and `GET /users/{id}/posts` now returns the cursor envelope instead of an array and ignores `page`. Existing posts keep their old skill as a single tag.
 - **Changed in the engagement update:** `POST /posts/{id}/like` is gone (**405**; use `PUT`, which is idempotent and returns **200** instead of 201 / 409). `DELETE /posts/{postId}/comments/{commentId}` is replaced by `DELETE /comments/{commentId}` (the old URL is a 404). `GET /posts/{id}/comments` now returns the cursor envelope with nested `replies` instead of a flat array, comments are limited to 500 characters (was 1000), and `CommentResponse` gained `parentId` and `replies`.
@@ -497,6 +499,49 @@ UI: show Accept/Reject only when `status === "PENDING"` and `requestedBy.id !== 
 - This replaces the old workaround of assembling a profile from search + availability + ratings. Availability is still a separate call: `GET /users/{id}/availability`.
 - Follower/following counts are real (they come from the follow system), and `isFollowedByMe` tells you which of Follow / Unfollow to show (the key is `isFollowedByMe`, not `followedByMe`). For the people lists use `GET /users/{id}/followers` and `/following`.
 - `UserResponse` now also carries `avatarUrl` everywhere it appears (exchanges, messages, search, …). Users shown through follows, posts and comments have `email: null`.
+
+### 4.16 Feeds: home, explore, suggested people
+
+| Method | Path | Query | Success |
+|--------|------|-------|---------|
+| GET | `/api/feed` | `cursor?`, `size` (default 20, max 100) | 200 `{ items: PostResponse[], nextCursor }` |
+| GET | `/api/explore` | `skillId?`, `cursor?`, `size` (default 20, max 100) | 200 `{ items: PostResponse[], nextCursor }` |
+| GET | `/api/explore/people` | `page` (default 0), `size` (default 20, max 100) | 200 `MatchResponse[]` |
+
+Every item in `/feed` and `/explore` is a full `PostResponse` (see 4.14): `author` summary (name, avatar, bio, city; email is `null`), `content` (can be `null`), `skills[]`, `media[]`, `likeCount`, `commentCount`, `likedByMe`, `createdAt`. You never need a second request per post.
+
+**Home feed (`GET /api/feed`)**
+- Posts by **people I follow plus my own**, newest first. Following someone makes their posts appear immediately; unfollowing removes them immediately. Your own new post is in the feed right away.
+- Infinite scroll: first request without `cursor`, then keep sending the previous response's `nextCursor` until it is `null`. Pull-to-refresh: request again **without** a cursor and replace the list. Posts that arrive while the user is scrolling never cause duplicates or gaps in the pages that follow.
+- This replaces `GET /api/posts/feed` for the home screen. The old endpoint still works (it uses `page` / `size`, so new posts shift its pages), but `/api/feed` is the one to build on.
+- An empty `items` with `nextCursor: null` means "nothing yet": suggest people to follow (below).
+
+**Explore (`GET /api/explore`)**
+- **Trending posts of the last 7 days**, best first, from **people I do not follow** (and not my own). Posts older than 7 days never appear.
+- Ranking: `(likes + 2 × comments)` divided by a power of the post's age, so a comment counts as two likes and newer posts beat older ones with similar engagement. Posts with no likes or comments are still included, at the bottom (newest first), so a new community is not empty.
+- `skillId` (from `GET /api/skills`) keeps only posts tagged with that skill. An unknown skill just gives an empty list.
+- Paging uses a cursor that remembers when the ranking started, so all pages of one scroll are ranked consistently. Counts can change while you scroll, so **skip any post id you already have** (a post can occasionally move across a page boundary). Start a new scroll (no cursor) to re-rank from now.
+- Following someone removes their posts from Explore on the next request.
+- A cursor from one endpoint is not valid on another (`/feed`, `/explore`, `/users/{id}/posts` and `/posts/{id}/comments` each make their own): wrong or garbled cursors are **400** `Invalid cursor`.
+
+**Suggested people (`GET /api/explore/people`)**
+- The same matching as `GET /api/matches` (people whose skills complement mine: `theyCanTeachMe` / `iCanTeachThem`, `isMutual` first), **without anyone I already follow**. The item shape is exactly `MatchResponse`, so the match card UI can be reused; show a **Follow** button (`PUT /users/{id}/follow`) and drop the card on success.
+- Empty when the user has not added any skills yet: show a hint to add skills (`POST /profile/skills`) instead.
+- Not cursor-based: it is a ranked list, paged with `page` / `size` (a page past the end is `[]`).
+
+```json
+// GET /api/feed?size=2  (shortened)
+{
+  "items": [
+    { "id": 812, "author": { "id": 4, "name": "Ravi", "avatarUrl": "/files/avatars/4-….png", "email": null, "…": "…" },
+      "content": "Day 30 of guitar scales", "skills": [ { "id": 1, "name": "Guitar", "…": "…" } ],
+      "media": [ { "url": "/files/posts/4-….jpg", "position": 0 } ],
+      "likeCount": 12, "commentCount": 3, "likedByMe": true, "createdAt": "2026-11-04T17:20:11.482913" },
+    { "id": 805, "…": "…" }
+  ],
+  "nextCursor": "MjAyNi0xMS0wNFQxNzoyMDoxMS40ODI5MTN8ODEy"
+}
+```
 
 ---
 
@@ -562,8 +607,9 @@ Keep unread badges in sync: increment on incoming messages where `sender.id !== 
 | Session detail | `GET /sessions/{id}`, `PUT …/complete`, `PUT …/cancel`, reschedule endpoints, `POST /sessions/{id}/ratings` |
 | Inbox | `GET /messages/conversations`, `GET /messages/unread-count`, WebSocket |
 | Chat thread | `GET /messages/conversations/{id}`, WebSocket `/app/chat.send` |
-| Home feed | `GET /posts/feed[?skillId&page&size]`, `POST /posts` (JSON, or multipart with images), `PUT/DELETE /posts/{id}/like` |
-| Explore / by skill | `GET /posts[?skillId&page&size]` |
+| Home feed | `GET /feed[?cursor&size]`, `POST /posts` (JSON, or multipart with images), `PUT/DELETE /posts/{id}/like` |
+| Explore (trending) | `GET /explore[?skillId&cursor&size]`, skill chips from `GET /skills` |
+| Who to follow | `GET /explore/people[?page&size]`, `PUT /users/{id}/follow` |
 | Post detail | `GET /posts/{id}`, `GET /posts/{id}/comments[?cursor&size]`, `POST /posts/{id}/comments` (with `parentId` to reply), `DELETE /comments/{id}`, `DELETE /posts/{id}`, `GET /posts/{id}/likes` (who liked) |
 | Follow lists / profile header | `GET /users/{id}/follow-status`, `/users/{id}/followers`, `/users/{id}/following`, `PUT/DELETE /users/{id}/follow`, `GET /users/{id}/posts[?cursor&size]` (cursor-paginated: profile post grid / infinite scroll) |
 
