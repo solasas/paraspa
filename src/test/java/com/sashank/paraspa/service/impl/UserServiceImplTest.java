@@ -36,6 +36,9 @@ class UserServiceImplTest {
     private UserSkillRepository userSkillRepository;
 
     @Mock
+    private com.sashank.paraspa.repository.FollowRepository followRepository;
+
+    @Mock
     private RatingRepository ratingRepository;
 
     @Mock
@@ -258,5 +261,59 @@ class UserServiceImplTest {
                 .isInstanceOf(ResourceNotFoundException.class);
 
         verify(storageService, never()).store(any(), any(), any());
+    }
+
+
+    // ------------------------------------------------------------ private accounts
+
+    private void stubProfile(User user) {
+        when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userSkillRepository.findByUserIdAndType(any(), any())).thenReturn(java.util.List.of());
+        when(dtoMapper.toUserSkillResponseList(any())).thenReturn(java.util.List.of());
+    }
+
+    @Test
+    void updateProfile_makingTheAccountPrivate_setsTheFlag_andLeavesExistingFollowersAlone() {
+        User user = User.builder().id(1L).name("Asha").isPrivate(false).build();
+        stubProfile(user);
+
+        userService.updateProfile(1L, com.sashank.paraspa.dto.request.UpdateProfileRequest.builder().privateAccount(true).build());
+
+        assertThat(user.isPrivate()).isTrue();
+        org.mockito.Mockito.verifyNoInteractions(followRepository);   // nobody who already follows is removed
+    }
+
+    @Test
+    void updateProfile_makingTheAccountPublic_approvesEveryWaitingRequest() {
+        User user = User.builder().id(1L).name("Asha").isPrivate(true).build();
+        stubProfile(user);
+
+        userService.updateProfile(1L, com.sashank.paraspa.dto.request.UpdateProfileRequest.builder().privateAccount(false).build());
+
+        assertThat(user.isPrivate()).isFalse();
+        verify(followRepository).acceptAllPending(1L);   // nothing is left to approve once anyone may follow
+    }
+
+    @Test
+    void updateProfile_staysPrivate_orIsNotMentioned_neverApprovesRequests() {
+        User stillPrivate = User.builder().id(1L).name("Asha").isPrivate(true).build();
+        stubProfile(stillPrivate);
+
+        userService.updateProfile(1L, com.sashank.paraspa.dto.request.UpdateProfileRequest.builder().privateAccount(true).build());
+        userService.updateProfile(1L, com.sashank.paraspa.dto.request.UpdateProfileRequest.builder().bio("hello").build());
+
+        assertThat(stillPrivate.isPrivate()).isTrue();   // an omitted flag leaves it unchanged
+        verify(followRepository, never()).acceptAllPending(any());
+    }
+
+    @Test
+    void updateProfile_alreadyPublicAndStaysPublic_approvesNothing() {
+        User user = User.builder().id(1L).name("Asha").isPrivate(false).build();
+        stubProfile(user);
+
+        userService.updateProfile(1L, com.sashank.paraspa.dto.request.UpdateProfileRequest.builder().privateAccount(false).build());
+
+        verify(followRepository, never()).acceptAllPending(any());
     }
 }

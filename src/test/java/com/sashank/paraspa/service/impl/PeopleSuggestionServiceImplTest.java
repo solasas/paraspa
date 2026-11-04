@@ -38,15 +38,24 @@ class PeopleSuggestionServiceImplTest {
 
     @Test
     void getSuggestedPeople_leavesOutEveryoneIAlreadyFollow() {
-        when(followRepository.findFollowingIdsByFollowerId(1L)).thenReturn(List.of(3L, 5L));
+        when(followRepository.findFollowedOrRequestedIds(1L)).thenReturn(List.of(3L, 5L));
         when(matchService.findMatches(1L)).thenReturn(List.of(match(2L, true), match(3L, true), match(4L, false), match(5L, false)));
 
         assertThat(userIds(suggestionService.getSuggestedPeople(1L, 0, 20))).containsExactly(2L, 4L);
     }
 
     @Test
+    void getSuggestedPeople_alsoLeavesOutPeopleIHaveAskedToFollow_aPendingRequestIsNotASuggestion() {
+        // findFollowedOrRequestedIds returns accepted follows AND pending requests
+        when(followRepository.findFollowedOrRequestedIds(1L)).thenReturn(List.of(3L));
+        when(matchService.findMatches(1L)).thenReturn(List.of(match(2L, false), match(3L, true)));
+
+        assertThat(userIds(suggestionService.getSuggestedPeople(1L, 0, 20))).containsExactly(2L);
+    }
+
+    @Test
     void getSuggestedPeople_keepsTheMatchOrder_mutualMatchesFirst() {
-        when(followRepository.findFollowingIdsByFollowerId(1L)).thenReturn(List.of());
+        when(followRepository.findFollowedOrRequestedIds(1L)).thenReturn(List.of());
         when(matchService.findMatches(1L)).thenReturn(List.of(match(7L, true), match(2L, true), match(9L, false), match(4L, false)));
 
         assertThat(userIds(suggestionService.getSuggestedPeople(1L, 0, 20))).containsExactly(7L, 2L, 9L, 4L);
@@ -55,7 +64,7 @@ class PeopleSuggestionServiceImplTest {
     @Test
     void getSuggestedPeople_followingASuggestedPersonRemovesThemFromTheNextRequest() {
         when(matchService.findMatches(1L)).thenReturn(List.of(match(2L, true), match(3L, false)));
-        when(followRepository.findFollowingIdsByFollowerId(1L)).thenReturn(List.of(), List.of(2L));
+        when(followRepository.findFollowedOrRequestedIds(1L)).thenReturn(List.of(), List.of(2L));
 
         assertThat(userIds(suggestionService.getSuggestedPeople(1L, 0, 20))).containsExactly(2L, 3L);
         assertThat(userIds(suggestionService.getSuggestedPeople(1L, 0, 20))).containsExactly(3L);
@@ -63,7 +72,7 @@ class PeopleSuggestionServiceImplTest {
 
     @Test
     void getSuggestedPeople_isEmptyWhenEveryMatchIsAlreadyFollowedOrThereAreNone() {
-        when(followRepository.findFollowingIdsByFollowerId(1L)).thenReturn(List.of(2L));
+        when(followRepository.findFollowedOrRequestedIds(1L)).thenReturn(List.of(2L));
         when(matchService.findMatches(1L)).thenReturn(List.of(match(2L, true)));
 
         assertThat(suggestionService.getSuggestedPeople(1L, 0, 20)).isEmpty();
@@ -72,7 +81,7 @@ class PeopleSuggestionServiceImplTest {
     @Test
     void getSuggestedPeople_pagesTheFilteredList_notTheOriginalOne() {
         // 10 matches; ids 1-3 are already followed. Page size 4 must give 4,5,6,7 then 8,9,10 (not a page with holes).
-        when(followRepository.findFollowingIdsByFollowerId(99L)).thenReturn(List.of(1L, 2L, 3L));
+        when(followRepository.findFollowedOrRequestedIds(99L)).thenReturn(List.of(1L, 2L, 3L));
         when(matchService.findMatches(99L)).thenReturn(IntStream.rangeClosed(1, 10).mapToObj(i -> match(i, false)).toList());
 
         assertThat(userIds(suggestionService.getSuggestedPeople(99L, 0, 4))).containsExactly(4L, 5L, 6L, 7L);

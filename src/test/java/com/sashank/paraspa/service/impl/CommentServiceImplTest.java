@@ -11,6 +11,7 @@ import com.sashank.paraspa.exception.ResourceNotFoundException;
 import com.sashank.paraspa.repository.CommentRepository;
 import com.sashank.paraspa.repository.PostRepository;
 import com.sashank.paraspa.repository.UserRepository;
+import com.sashank.paraspa.service.AccessPolicy;
 import com.sashank.paraspa.util.CursorUtil;
 import com.sashank.paraspa.util.DtoMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,6 +51,9 @@ class CommentServiceImplTest {
 
     @Mock
     private ApplicationEventPublisher eventPublisher;
+
+    @Mock
+    private AccessPolicy accessPolicy;
 
     @InjectMocks
     private CommentServiceImpl commentService;
@@ -197,12 +201,12 @@ class CommentServiceImplTest {
         Comment r1 = comment(11L, post, stranger, c1);
         Comment r2 = comment(12L, post, me, c1);
         Comment r3 = comment(21L, post, stranger, c2);
-        when(postRepository.existsById(100L)).thenReturn(true);
-        when(commentRepository.findByPostIdAndParentIsNullOrderByIdAsc(eq(100L), any(Pageable.class)))
+        when(postRepository.findById(100L)).thenReturn(Optional.of(post));
+        when(commentRepository.findTopLevelVisible(eq(100L), eq(1L), any(Pageable.class)))
                 .thenReturn(List.of(c1, c2, c3));
-        when(commentRepository.findByParentIdInOrderByIdAsc(anyCollection())).thenReturn(List.of(r1, r2, r3));
+        when(commentRepository.findRepliesVisible(anyCollection(), eq(1L))).thenReturn(List.of(r1, r2, r3));
 
-        CursorPageResponse<CommentResponse> page = commentService.getComments(100L, null, 2);
+        CursorPageResponse<CommentResponse> page = commentService.getComments(1L, 100L, null, 2);
 
         assertThat(page.getItems()).extracting(CommentResponse::getId).containsExactly(10L, 20L);
         assertThat(page.getItems().get(0).getReplies()).extracting(CommentResponse::getId).containsExactly(11L, 12L);
@@ -210,7 +214,7 @@ class CommentServiceImplTest {
         assertThat(CursorUtil.decode(page.getNextCursor())).isEqualTo(20L);
 
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
-        verify(commentRepository).findByPostIdAndParentIsNullOrderByIdAsc(eq(100L), pageable.capture());
+        verify(commentRepository).findTopLevelVisible(eq(100L), eq(1L), pageable.capture());
         assertThat(pageable.getValue().getPageSize()).isEqualTo(3);
     }
 
@@ -219,28 +223,28 @@ class CommentServiceImplTest {
         Comment c1 = comment(10L, post, me, null);
         Comment c2 = comment(20L, post, me, null);
         Comment extra = comment(30L, post, me, null);
-        when(postRepository.existsById(100L)).thenReturn(true);
-        when(commentRepository.findByPostIdAndParentIsNullOrderByIdAsc(eq(100L), any(Pageable.class)))
+        when(postRepository.findById(100L)).thenReturn(Optional.of(post));
+        when(commentRepository.findTopLevelVisible(eq(100L), eq(1L), any(Pageable.class)))
                 .thenReturn(List.of(c1, c2, extra));
-        when(commentRepository.findByParentIdInOrderByIdAsc(anyCollection())).thenReturn(List.of());
+        when(commentRepository.findRepliesVisible(anyCollection(), eq(1L))).thenReturn(List.of());
 
-        commentService.getComments(100L, null, 2);
+        commentService.getComments(1L, 100L, null, 2);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Collection<Long>> parents = ArgumentCaptor.forClass(Collection.class);
-        verify(commentRepository, org.mockito.Mockito.times(1)).findByParentIdInOrderByIdAsc(parents.capture());
+        verify(commentRepository, org.mockito.Mockito.times(1)).findRepliesVisible(parents.capture(), eq(1L));
         assertThat(parents.getValue()).containsExactlyInAnyOrder(10L, 20L);   // not the dropped extra row
     }
 
     @Test
     void getComments_commentWithoutRepliesShouldHaveAnEmptyReplyList() {
         Comment c1 = comment(10L, post, me, null);
-        when(postRepository.existsById(100L)).thenReturn(true);
-        when(commentRepository.findByPostIdAndParentIsNullOrderByIdAsc(eq(100L), any(Pageable.class)))
+        when(postRepository.findById(100L)).thenReturn(Optional.of(post));
+        when(commentRepository.findTopLevelVisible(eq(100L), eq(1L), any(Pageable.class)))
                 .thenReturn(List.of(c1));
-        when(commentRepository.findByParentIdInOrderByIdAsc(anyCollection())).thenReturn(List.of());
+        when(commentRepository.findRepliesVisible(anyCollection(), eq(1L))).thenReturn(List.of());
 
-        CursorPageResponse<CommentResponse> page = commentService.getComments(100L, null, 20);
+        CursorPageResponse<CommentResponse> page = commentService.getComments(1L, 100L, null, 20);
 
         assertThat(page.getItems().get(0).getReplies()).isNotNull().isEmpty();
         assertThat(page.getNextCursor()).isNull();
@@ -249,35 +253,35 @@ class CommentServiceImplTest {
     @Test
     void getComments_shouldContinueAfterTheCursor() {
         Comment c3 = comment(30L, post, me, null);
-        when(postRepository.existsById(100L)).thenReturn(true);
-        when(commentRepository.findByPostIdAndParentIsNullAndIdGreaterThanOrderByIdAsc(eq(100L), eq(20L), any(Pageable.class)))
+        when(postRepository.findById(100L)).thenReturn(Optional.of(post));
+        when(commentRepository.findTopLevelVisibleAfter(eq(100L), eq(20L), eq(1L), any(Pageable.class)))
                 .thenReturn(List.of(c3));
-        when(commentRepository.findByParentIdInOrderByIdAsc(anyCollection())).thenReturn(List.of());
+        when(commentRepository.findRepliesVisible(anyCollection(), eq(1L))).thenReturn(List.of());
 
-        CursorPageResponse<CommentResponse> page = commentService.getComments(100L, CursorUtil.encode(20L), 20);
+        CursorPageResponse<CommentResponse> page = commentService.getComments(1L, 100L, CursorUtil.encode(20L), 20);
 
         assertThat(page.getItems()).extracting(CommentResponse::getId).containsExactly(30L);
         assertThat(page.getNextCursor()).isNull();
-        verify(commentRepository, never()).findByPostIdAndParentIsNullOrderByIdAsc(any(), any());
+        verify(commentRepository, never()).findTopLevelVisible(any(), any(), any());
     }
 
     @Test
     void getComments_pagingThroughEverythingShouldVisitEachTopLevelCommentOnceInOrder() {
         List<Comment> all = List.of(comment(10L, post, me, null), comment(20L, post, me, null),
                 comment(30L, post, me, null), comment(40L, post, me, null), comment(50L, post, me, null));
-        when(postRepository.existsById(100L)).thenReturn(true);
-        when(commentRepository.findByPostIdAndParentIsNullOrderByIdAsc(eq(100L), any(Pageable.class)))
-                .thenAnswer(invocation -> all.stream().limit(((Pageable) invocation.getArgument(1)).getPageSize()).toList());
-        when(commentRepository.findByPostIdAndParentIsNullAndIdGreaterThanOrderByIdAsc(eq(100L), anyLong(), any(Pageable.class)))
+        when(postRepository.findById(100L)).thenReturn(Optional.of(post));
+        when(commentRepository.findTopLevelVisible(eq(100L), eq(1L), any(Pageable.class)))
+                .thenAnswer(invocation -> all.stream().limit(((Pageable) invocation.getArgument(2)).getPageSize()).toList());
+        when(commentRepository.findTopLevelVisibleAfter(eq(100L), anyLong(), eq(1L), any(Pageable.class)))
                 .thenAnswer(invocation -> all.stream().filter(c -> c.getId() > (Long) invocation.getArgument(1))
-                        .limit(((Pageable) invocation.getArgument(2)).getPageSize()).toList());
-        when(commentRepository.findByParentIdInOrderByIdAsc(anyCollection())).thenReturn(List.of());
+                        .limit(((Pageable) invocation.getArgument(3)).getPageSize()).toList());
+        when(commentRepository.findRepliesVisible(anyCollection(), eq(1L))).thenReturn(List.of());
 
         List<Long> seen = new ArrayList<>();
         String cursor = null;
         int pages = 0;
         do {
-            CursorPageResponse<CommentResponse> page = commentService.getComments(100L, cursor, 2);
+            CursorPageResponse<CommentResponse> page = commentService.getComments(1L, 100L, cursor, 2);
             page.getItems().forEach(c -> seen.add(c.getId()));
             cursor = page.getNextCursor();
             pages++;
@@ -289,25 +293,25 @@ class CommentServiceImplTest {
 
     @Test
     void getComments_emptyPostShouldNotRunTheRepliesQuery() {
-        when(postRepository.existsById(100L)).thenReturn(true);
-        when(commentRepository.findByPostIdAndParentIsNullOrderByIdAsc(eq(100L), any(Pageable.class)))
+        when(postRepository.findById(100L)).thenReturn(Optional.of(post));
+        when(commentRepository.findTopLevelVisible(eq(100L), eq(1L), any(Pageable.class)))
                 .thenReturn(List.of());
 
-        CursorPageResponse<CommentResponse> page = commentService.getComments(100L, null, 20);
+        CursorPageResponse<CommentResponse> page = commentService.getComments(1L, 100L, null, 20);
 
         assertThat(page.getItems()).isEmpty();
-        verify(commentRepository, never()).findByParentIdInOrderByIdAsc(any());
+        verify(commentRepository, never()).findRepliesVisible(any(), any());
     }
 
     @Test
     void getComments_shouldRejectBadCursorBadSizeAndMissingPost() {
-        assertThatThrownBy(() -> commentService.getComments(100L, "not-a-cursor!", 20))
+        assertThatThrownBy(() -> commentService.getComments(1L, 100L, "not-a-cursor!", 20))
                 .isInstanceOf(BadRequestException.class).hasMessage("Invalid cursor");
-        assertThatThrownBy(() -> commentService.getComments(100L, null, 0)).isInstanceOf(BadRequestException.class);
-        assertThatThrownBy(() -> commentService.getComments(100L, null, 101)).isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> commentService.getComments(1L, 100L, null, 0)).isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> commentService.getComments(1L, 100L, null, 101)).isInstanceOf(BadRequestException.class);
 
-        when(postRepository.existsById(100L)).thenReturn(false);
-        assertThatThrownBy(() -> commentService.getComments(100L, null, 20))
+        when(postRepository.findById(100L)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> commentService.getComments(1L, 100L, null, 20))
                 .isInstanceOf(ResourceNotFoundException.class).hasMessage("Post not found");
     }
 
@@ -442,6 +446,50 @@ class CommentServiceImplTest {
 
         commentService.deleteComment(1L, 10L);
 
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    // ------------------------------------------------------------ blocks and private accounts
+
+    @Test
+    void getComments_asksTheDatabaseForTheViewersVisibleCommentsOnly_theViewerIdGoesIntoEveryQuery() {
+        Comment c1 = comment(10L, post, me, null);
+        when(postRepository.findById(100L)).thenReturn(Optional.of(post));
+        when(commentRepository.findTopLevelVisible(eq(100L), eq(7L), any(Pageable.class))).thenReturn(List.of(c1));
+        when(commentRepository.findRepliesVisible(anyCollection(), eq(7L))).thenReturn(List.of());
+
+        commentService.getComments(7L, 100L, null, 20);
+
+        // the block filter lives in these queries (see QueryFragments); the service must pass the right viewer to all of them
+        verify(commentRepository).findTopLevelVisible(eq(100L), eq(7L), any(Pageable.class));
+        verify(commentRepository).findRepliesVisible(anyCollection(), eq(7L));
+    }
+
+    @Test
+    void getComments_aPostTheViewerMayNotSee_isA404_andNothingIsQueried() {
+        when(postRepository.findById(100L)).thenReturn(Optional.of(post));
+        org.mockito.Mockito.doThrow(new ResourceNotFoundException("Post not found"))
+                .when(accessPolicy).requirePostVisible(7L, post);
+
+        assertThatThrownBy(() -> commentService.getComments(7L, 100L, null, 20))
+                .isInstanceOf(ResourceNotFoundException.class).hasMessage("Post not found");
+
+        verify(commentRepository, never()).findTopLevelVisible(any(), any(), any());
+        verify(commentRepository, never()).findRepliesVisible(any(), any());
+    }
+
+    @Test
+    void addComment_aPostTheCommenterMayNotSee_isA404_andNothingIsSaved() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(me));
+        when(postRepository.findById(100L)).thenReturn(Optional.of(post));
+        org.mockito.Mockito.doThrow(new ResourceNotFoundException("Post not found"))
+                .when(accessPolicy).requirePostVisible(1L, post);
+
+        assertThatThrownBy(() -> commentService.addComment(1L, 100L, request("hi", null)))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(commentRepository, never()).save(any());
+        verify(postRepository, never()).incrementCommentCount(any());
         verify(eventPublisher, never()).publishEvent(any(Object.class));
     }
 }

@@ -4,6 +4,7 @@ import com.sashank.paraspa.dto.response.ErrorResponse;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
@@ -34,6 +35,18 @@ public class GlobalExceptionHandler {
                 .path(request.getDescription(false).replace("uri=", ""))
                 .build();
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(errorResponse);
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ErrorResponse> handleForbiddenException(ForbiddenException ex, WebRequest request) {
+        return build(HttpStatus.FORBIDDEN, "Forbidden", ex.getMessage(), request);
+    }
+
+    // Thrown by @PreAuthorize / method security inside a controller. Without this the catch-all handler below would
+    // answer 500 Internal Server Error for a non-admin calling an admin method.
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDeniedException(AccessDeniedException ex, WebRequest request) {
+        return build(HttpStatus.FORBIDDEN, "Forbidden", "You do not have permission to do this", request);
     }
 
     @ExceptionHandler(UnauthorizedException.class)
@@ -121,6 +134,13 @@ public class GlobalExceptionHandler {
             MissingServletRequestParameterException ex, WebRequest request) {
         return build(HttpStatus.BAD_REQUEST, "Bad Request",
                 "Required parameter '" + ex.getParameterName() + "' is missing", request);
+    }
+
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleUnreadableBody(
+            org.springframework.http.converter.HttpMessageNotReadableException ex, WebRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "Bad Request",
+                "Malformed request body or an invalid value in it", request);
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)

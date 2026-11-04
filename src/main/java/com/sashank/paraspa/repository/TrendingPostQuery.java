@@ -53,7 +53,13 @@ public class TrendingPostQuery {
                 .append(" FROM posts p")
                 .append(" WHERE p.created_at > :since AND p.created_at <= :asOf")
                 .append("  AND p.author_id <> :viewer")
-                .append("  AND NOT EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = :viewer AND f.following_id = p.author_id)");
+                .append("  AND NOT EXISTS (SELECT 1 FROM follows f WHERE f.follower_id = :viewer AND f.following_id = p.author_id")
+                .append("                  AND f.status = 'ACCEPTED')")
+                // nobody sees blocked users' posts, and a private account's posts are never "trending" for strangers
+                // (the people allowed to see them are its followers, and followed accounts are excluded from explore)
+                .append("  AND NOT EXISTS (SELECT 1 FROM blocks b WHERE (b.blocker_id = :viewer AND b.blocked_id = p.author_id)")
+                .append("                  OR (b.blocked_id = :viewer AND b.blocker_id = p.author_id))")
+                .append("  AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = p.author_id AND u.is_private = TRUE)");
         if (skillId != null) {
             sql.append("  AND EXISTS (SELECT 1 FROM post_skills ps WHERE ps.post_id = p.id AND ps.skill_id = :skillId)");
         }

@@ -4,7 +4,9 @@ import com.sashank.paraspa.dto.response.PublicProfileResponse;
 import com.sashank.paraspa.dto.response.RatingSummaryResponse;
 import com.sashank.paraspa.dto.response.UserSkillResponse;
 import com.sashank.paraspa.entity.User;
+import com.sashank.paraspa.enums.FollowStatus;
 import com.sashank.paraspa.enums.SkillType;
+import com.sashank.paraspa.service.AccessPolicy;
 import com.sashank.paraspa.exception.ResourceNotFoundException;
 import com.sashank.paraspa.repository.FollowRepository;
 import com.sashank.paraspa.repository.UserRepository;
@@ -44,6 +46,9 @@ class PublicProfileServiceImplTest {
     private RatingService ratingService;
 
     @Mock
+    private AccessPolicy accessPolicy;
+
+    @Mock
     private DtoMapper dtoMapper;
 
     @InjectMocks
@@ -73,9 +78,9 @@ class PublicProfileServiceImplTest {
         when(userSkillRepository.findByUserIdAndType(2L, SkillType.TEACH)).thenReturn(List.of());
         when(userSkillRepository.findByUserIdAndType(2L, SkillType.LEARN)).thenReturn(List.of());
         when(dtoMapper.toUserSkillResponseList(List.of())).thenReturn(teach, learn);
-        when(followRepository.countByFollowingId(2L)).thenReturn(7L);
-        when(followRepository.countByFollowerId(2L)).thenReturn(3L);
-        when(followRepository.existsByFollowerIdAndFollowingId(1L, 2L)).thenReturn(true);
+        when(followRepository.countByFollowingIdAndStatus(2L, FollowStatus.ACCEPTED)).thenReturn(7L);
+        when(followRepository.countByFollowerIdAndStatus(2L, FollowStatus.ACCEPTED)).thenReturn(3L);
+        when(followRepository.existsByFollowerIdAndFollowingIdAndStatus(1L, 2L, FollowStatus.ACCEPTED)).thenReturn(true);
 
         PublicProfileResponse profile = publicProfileService.getPublicProfile(1L, 2L);
 

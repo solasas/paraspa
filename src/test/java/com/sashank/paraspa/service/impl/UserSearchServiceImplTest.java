@@ -46,6 +46,9 @@ class UserSearchServiceImplTest {
     private AvailabilityRepository availabilityRepository;
 
     @Mock
+    private com.sashank.paraspa.service.BlockService blockService;
+
+    @Mock
     private DtoMapper dtoMapper;
 
     @InjectMocks
@@ -215,5 +218,24 @@ class UserSearchServiceImplTest {
                 .isInstanceOf(com.sashank.paraspa.exception.BadRequestException.class);
         assertThatThrownBy(() -> userSearchService.searchUsers(1L, null, null, null, null, null, -1, 20))
                 .isInstanceOf(com.sashank.paraspa.exception.BadRequestException.class);
+    }
+
+
+    @Test
+    void searchUsers_neverReturnsAUserBlockedEitherWay() {
+        User me = User.builder().id(1L).build();
+        User blockedByMe = User.builder().id(2L).build();
+        User blockedMe = User.builder().id(3L).build();
+        User fine = User.builder().id(4L).build();
+        when(userRepository.findAll()).thenReturn(List.of(me, blockedByMe, blockedMe, fine));
+        when(blockService.getHiddenUserIds(1L)).thenReturn(java.util.Set.of(2L, 3L));
+        when(ratingRepository.getAverageRatingByUserId(anyLong())).thenReturn(null);
+        when(ratingRepository.countByRatedToId(anyLong())).thenReturn(0L);
+        when(dtoMapper.toUserResponseWithRatings(any(User.class), any(), any())).thenAnswer(invocation ->
+                UserResponse.builder().id(((User) invocation.getArgument(0)).getId()).build());
+
+        List<UserResponse> results = userSearchService.searchUsers(1L, null, null, null, null, null);
+
+        assertThat(results).extracting(UserResponse::getId).containsExactly(4L);
     }
 }

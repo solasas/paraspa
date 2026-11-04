@@ -28,10 +28,11 @@ public class CommentController {
 
     @GetMapping("/posts/{postId}/comments")
     public ResponseEntity<CursorPageResponse<CommentResponse>> getComments(
+            @RequestAttribute("userId") Long userId,
             @PathVariable Long postId,
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(commentService.getComments(postId, cursor, size));
+        return ResponseEntity.ok(commentService.getComments(userId, postId, cursor, size));
     }
 
     @DeleteMapping("/comments/{commentId}")

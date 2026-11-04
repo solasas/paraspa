@@ -15,10 +15,12 @@ import com.sashank.paraspa.service.UserSearchService;
 import com.sashank.paraspa.util.DtoMapper;
 import com.sashank.paraspa.util.PaginationUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.sashank.paraspa.service.BlockService;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -40,15 +42,20 @@ public class UserSearchServiceImpl implements UserSearchService {
     private AvailabilityRepository availabilityRepository;
 
     @Autowired
+    private BlockService blockService;
+
+    @Autowired
     private DtoMapper dtoMapper;
 
     @Override
     public List<UserResponse> searchUsers(Long currentUserId, String skillName, String city,
                                            SkillLevel level, Double minRating, Boolean availableOnly) {
         List<User> candidates = findCandidates(skillName, level);
+        Set<Long> hidden = blockService.getHiddenUserIds(currentUserId);   // blocked either way: never in the results
 
         return candidates.stream()
                 .filter(user -> !user.getId().equals(currentUserId))
+                .filter(user -> !hidden.contains(user.getId()))
                 .filter(user -> matchesCity(user, city))
                 .filter(user -> availableOnly == null || !availableOnly || availabilityRepository.existsByUserId(user.getId()))
                 .map(this::toUserResponseWithRatings)

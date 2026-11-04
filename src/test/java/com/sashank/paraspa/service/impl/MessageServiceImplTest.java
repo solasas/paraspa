@@ -44,6 +44,9 @@ class MessageServiceImplTest {
     private DtoMapper dtoMapper;
 
     @Mock
+    private com.sashank.paraspa.service.BlockService blockService;
+
+    @Mock
     private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
@@ -305,5 +308,36 @@ class MessageServiceImplTest {
         messageService.getConversation(1L, 2L, 0, 20);
 
         verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+
+    // ------------------------------------------------------------ blocks
+
+    @Test
+    void sendMessage_acrossABlock_isRefused_nothingSaved_noEvent() {
+        User sender = User.builder().id(1L).build();
+        User receiver = User.builder().id(2L).build();
+        when(userRepository.findById(1L)).thenReturn(Optional.of(sender));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(receiver));
+        org.mockito.Mockito.doThrow(new BadRequestException("You have blocked this user. Unblock them first."))
+                .when(blockService).requireNoBlock(1L, 2L);
+
+        assertThatThrownBy(() -> messageService.sendMessage(1L, SendMessageRequest.builder().receiverId(2L).content("hi").build()))
+                .isInstanceOf(BadRequestException.class).hasMessageContaining("blocked");
+
+        verify(messageRepository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    void sendMessage_toSomeoneWhoBlockedYou_looksLikeAMissingUser() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(User.builder().id(1L).build()));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(User.builder().id(2L).build()));
+        org.mockito.Mockito.doThrow(new ResourceNotFoundException("User not found")).when(blockService).requireNoBlock(1L, 2L);
+
+        assertThatThrownBy(() -> messageService.sendMessage(1L, SendMessageRequest.builder().receiverId(2L).content("hi").build()))
+                .isInstanceOf(ResourceNotFoundException.class).hasMessage("User not found");
+
+        verify(messageRepository, never()).save(any());
     }
 }

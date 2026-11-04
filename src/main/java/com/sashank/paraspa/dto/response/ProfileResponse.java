@@ -1,5 +1,6 @@
 package com.sashank.paraspa.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -17,6 +18,10 @@ public class ProfileResponse {
     private String bio;
     private String city;
     private String avatarUrl;
+
+    /** A private account: following it needs your approval, and your posts are for accepted followers only. */
+    @JsonProperty("isPrivate")
+    private boolean privateAccount;
     private List<UserSkillResponse> teachSkills;
     private List<UserSkillResponse> learnSkills;
     private Double averageRating;

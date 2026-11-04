@@ -26,7 +26,8 @@ public class PeopleSuggestionServiceImpl implements PeopleSuggestionService {
     public List<MatchResponse> getSuggestedPeople(Long userId, int page, int size) {
         PaginationUtil.toPageable(page, size);   // validates page/size before doing any work
 
-        Set<Long> alreadyFollowed = new HashSet<>(followRepository.findFollowingIdsByFollowerId(userId));
+        // everyone I follow or already asked to follow is not a suggestion; blocked users are left out by MatchService
+        Set<Long> alreadyFollowed = new HashSet<>(followRepository.findFollowedOrRequestedIds(userId));
 
         // MatchService already leaves out the user and puts mutual matches first; keep its order
         List<MatchResponse> suggestions = matchService.findMatches(userId).stream()

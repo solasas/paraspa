@@ -2,6 +2,7 @@ package com.sashank.paraspa.service.impl;
 
 import com.sashank.paraspa.dto.response.PublicProfileResponse;
 import com.sashank.paraspa.entity.User;
+import com.sashank.paraspa.enums.FollowStatus;
 import com.sashank.paraspa.enums.SkillType;
 import com.sashank.paraspa.exception.ResourceNotFoundException;
 import com.sashank.paraspa.repository.FollowRepository;
@@ -11,6 +12,7 @@ import com.sashank.paraspa.service.PublicProfileService;
 import com.sashank.paraspa.service.RatingService;
 import com.sashank.paraspa.util.DtoMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.sashank.paraspa.service.AccessPolicy;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -29,12 +31,16 @@ public class PublicProfileServiceImpl implements PublicProfileService {
     private RatingService ratingService;
 
     @Autowired
+    private AccessPolicy accessPolicy;
+
+    @Autowired
     private DtoMapper dtoMapper;
 
     @Override
     public PublicProfileResponse getPublicProfile(Long viewerId, Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        accessPolicy.requireUserVisible(viewerId, userId);   // blocked either way: the profile does not exist for you
 
         return PublicProfileResponse.builder()
                 .id(user.getId())
@@ -47,9 +53,11 @@ public class PublicProfileServiceImpl implements PublicProfileService {
                         userSkillRepository.findByUserIdAndType(userId, SkillType.TEACH)))
                 .learnSkills(dtoMapper.toUserSkillResponseList(
                         userSkillRepository.findByUserIdAndType(userId, SkillType.LEARN)))
-                .followersCount(followRepository.countByFollowingId(userId))
-                .followingCount(followRepository.countByFollowerId(userId))
-                .followedByMe(followRepository.existsByFollowerIdAndFollowingId(viewerId, userId))
+                .privateAccount(user.isPrivate())
+                .followersCount(followRepository.countByFollowingIdAndStatus(userId, FollowStatus.ACCEPTED))
+                .followingCount(followRepository.countByFollowerIdAndStatus(userId, FollowStatus.ACCEPTED))
+                .followedByMe(followRepository.existsByFollowerIdAndFollowingIdAndStatus(viewerId, userId, FollowStatus.ACCEPTED))
+                .followRequestedByMe(followRepository.existsByFollowerIdAndFollowingIdAndStatus(viewerId, userId, FollowStatus.PENDING))
                 .build();
     }
 }

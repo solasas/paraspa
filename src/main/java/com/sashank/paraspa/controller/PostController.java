@@ -102,9 +102,10 @@ public class PostController {
 
     @GetMapping("/posts/{postId}/likes")
     public ResponseEntity<List<UserResponse>> getLikes(
+            @RequestAttribute("userId") Long userId,
             @PathVariable Long postId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(postService.getLikes(postId, page, size));
+        return ResponseEntity.ok(postService.getLikes(userId, postId, page, size));
     }
 }

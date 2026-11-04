@@ -37,6 +37,9 @@ class MatchServiceImplTest {
     private UserSkillRepository userSkillRepository;
 
     @Mock
+    private com.sashank.paraspa.service.BlockService blockService;
+
+    @Mock
     private DtoMapper dtoMapper;
 
     @InjectMocks
@@ -265,5 +268,33 @@ class MatchServiceImplTest {
 
         org.assertj.core.api.Assertions.assertThat(match.getUser().getId()).isEqualTo(2L);
         org.assertj.core.api.Assertions.assertThat(match.getUser().getEmail()).isNull();
+    }
+
+
+    @Test
+    void findMatches_neverIncludesAUserBlockedEitherWay() {
+        Skill guitar = Skill.builder().id(10L).build();
+        User me = User.builder().id(1L).build();
+        User blocked = User.builder().id(2L).build();
+        User fine = User.builder().id(3L).build();
+        when(userRepository.findById(1L)).thenReturn(Optional.of(me));
+        when(userSkillRepository.findByUserIdAndType(1L, SkillType.LEARN)).thenReturn(List.of());
+        when(userSkillRepository.findByUserIdAndType(1L, SkillType.TEACH)).thenReturn(List.of(teach(me, guitar)));
+        stubBatch(Set.of(10L), SkillType.LEARN, learn(blocked, guitar), learn(fine, guitar));
+        when(blockService.getHiddenUserIds(1L)).thenReturn(Set.of(2L));
+        stubDtoMapper();
+
+        List<MatchResponse> matches = matchService.findMatches(1L);
+
+        assertThat(matches).extracting(m -> m.getUser().getId()).containsExactly(3L);
+    }
+
+    @Test
+    void checkMatch_withAUserBlockedEitherWay_looksLikeAMissingUser() {
+        when(userRepository.findById(2L)).thenReturn(Optional.of(User.builder().id(2L).build()));
+        when(blockService.isBlockedEitherWay(1L, 2L)).thenReturn(true);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> matchService.checkMatch(1L, 2L))
+                .isInstanceOf(com.sashank.paraspa.exception.ResourceNotFoundException.class).hasMessage("User not found");
     }
 }

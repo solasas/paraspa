@@ -1,5 +1,6 @@
 package com.sashank.paraspa.entity;
 
+import com.sashank.paraspa.enums.FollowStatus;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import org.hibernate.annotations.Check;
@@ -29,6 +30,12 @@ public class Follow {
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "following_id", nullable = false)
     private User following;
+
+    /** PENDING while the owner of a private account has not answered; ACCEPTED otherwise. */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    @Builder.Default
+    private FollowStatus status = FollowStatus.ACCEPTED;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;

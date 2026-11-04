@@ -17,6 +17,7 @@ import com.sashank.paraspa.util.CursorUtil;
 import com.sashank.paraspa.util.DtoMapper;
 import com.sashank.paraspa.util.PaginationUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.sashank.paraspa.service.AccessPolicy;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -45,6 +46,9 @@ public class CommentServiceImpl implements CommentService {
     private ApplicationEventPublisher eventPublisher;
 
     @Autowired
+    private AccessPolicy accessPolicy;
+
+    @Autowired
     private DtoMapper dtoMapper;
 
     @Override
@@ -55,6 +59,7 @@ public class CommentServiceImpl implements CommentService {
 
         Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new ResourceNotFoundException("Post not found"));
+        accessPolicy.requirePostVisible(userId, post);   // a blocked user's or a private account's post does not exist for you
 
         String content = request.getContent() == null ? "" : request.getContent().trim();
         if (content.isEmpty()) {
@@ -89,19 +94,19 @@ public class CommentServiceImpl implements CommentService {
 
     @Override
     @Transactional(readOnly = true)
-    public CursorPageResponse<CommentResponse> getComments(Long postId, String cursor, int size) {
+    public CursorPageResponse<CommentResponse> getComments(Long viewerId, Long postId, String cursor, int size) {
         PaginationUtil.requireValidSize(size);
         Long afterId = CursorUtil.decode(cursor);
 
-        if (!postRepository.existsById(postId)) {
-            throw new ResourceNotFoundException("Post not found");
-        }
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new ResourceNotFoundException("Post not found"));
+        accessPolicy.requirePostVisible(viewerId, post);
 
-        // one extra row tells us whether a next page exists
+        // one extra row tells us whether a next page exists; comments by users blocked with the viewer are left out
         Pageable pageable = PageRequest.of(0, size + 1);
         List<Comment> fetched = afterId == null
-                ? commentRepository.findByPostIdAndParentIsNullOrderByIdAsc(postId, pageable)
-                : commentRepository.findByPostIdAndParentIsNullAndIdGreaterThanOrderByIdAsc(postId, afterId, pageable);
+                ? commentRepository.findTopLevelVisible(postId, viewerId, pageable)
+                : commentRepository.findTopLevelVisibleAfter(postId, afterId, viewerId, pageable);
 
         CursorPageResponse<Comment> page = CursorPageResponse.of(fetched, size, Comment::getId);
 
@@ -109,7 +114,7 @@ public class CommentServiceImpl implements CommentService {
         Map<Long, List<CommentResponse>> repliesByParent = new LinkedHashMap<>();
         if (!page.getItems().isEmpty()) {
             List<Long> parentIds = page.getItems().stream().map(Comment::getId).toList();
-            for (Comment reply : commentRepository.findByParentIdInOrderByIdAsc(parentIds)) {
+            for (Comment reply : commentRepository.findRepliesVisible(parentIds, viewerId)) {
                 repliesByParent
                         .computeIfAbsent(reply.getParent().getId(), id -> new ArrayList<>())
                         .add(dtoMapper.toCommentResponse(reply));

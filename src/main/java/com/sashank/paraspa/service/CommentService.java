@@ -12,8 +12,11 @@ public interface CommentService {
      */
     CommentResponse addComment(Long userId, Long postId, CreateCommentRequest request);
 
-    /** A post's top-level comments, oldest first, each with its replies nested (oldest first), cursor-paginated. */
-    CursorPageResponse<CommentResponse> getComments(Long postId, String cursor, int size);
+    /**
+     * A post's top-level comments, oldest first, each with its replies nested (oldest first), cursor-paginated.
+     * Comments and replies by users blocked with the viewer (either way) are left out; a post the viewer may not see is a 404.
+     */
+    CursorPageResponse<CommentResponse> getComments(Long viewerId, Long postId, String cursor, int size);
 
     /**
      * Deletes a comment. Allowed for the comment's author and for the post's author; anyone else gets a 404.

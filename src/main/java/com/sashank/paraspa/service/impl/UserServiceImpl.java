@@ -17,8 +17,10 @@ import com.sashank.paraspa.storage.StorageService;
 import com.sashank.paraspa.util.ImageFormat;
 import com.sashank.paraspa.util.DtoMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.sashank.paraspa.repository.FollowRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.util.List;
@@ -38,6 +40,9 @@ public class UserServiceImpl implements UserService {
 
     @Autowired
     private RatingRepository ratingRepository;
+
+    @Autowired
+    private FollowRepository followRepository;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -71,6 +76,7 @@ public class UserServiceImpl implements UserService {
                 .bio(user.getBio())
                 .city(user.getCity())
                 .avatarUrl(user.getAvatarUrl())
+                .privateAccount(user.isPrivate())
                 .teachSkills(dtoMapper.toUserSkillResponseList(teachSkills))
                 .learnSkills(dtoMapper.toUserSkillResponseList(learnSkills))
                 .averageRating(avgRating != null ? avgRating : 0.0)
@@ -79,6 +85,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional
     public ProfileResponse updateProfile(Long userId, UpdateProfileRequest request) {
         User user = getUserById(userId);
 
@@ -91,8 +98,17 @@ public class UserServiceImpl implements UserService {
         if (request.getCity() != null) {
             user.setCity(request.getCity());
         }
+        boolean becomesPublic = request.getPrivateAccount() != null && !request.getPrivateAccount() && user.isPrivate();
+        if (request.getPrivateAccount() != null) {
+            user.setPrivate(request.getPrivateAccount());
+        }
 
         user = userRepository.save(user);
+
+        if (becomesPublic) {
+            // nothing is left to approve once anyone may follow: the people who were waiting are now followers
+            followRepository.acceptAllPending(user.getId());
+        }
 
         return getProfile(user.getId());
     }

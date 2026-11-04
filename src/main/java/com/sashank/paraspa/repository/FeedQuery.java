@@ -8,7 +8,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * Selects the ids of a page of the home feed: posts by the people I follow plus my own, newest first.
+ * Selects the ids of a page of the home feed: posts by the people I follow (accepted follows only, so a pending request
+ * shows nothing) plus my own, newest first, never from a user blocked either way.
  * <p>
  * Plain SQL, not HQL, for two reasons that were measured on PostgreSQL (300k posts, user following 300 people):
  * <ul>
@@ -40,7 +41,11 @@ public class FeedQuery {
         StringBuilder sql = new StringBuilder()
                 .append("SELECT p.id AS id, p.created_at AS created_at FROM posts p")
                 .append(" WHERE p.author_id IN (SELECT f.following_id FROM follows f WHERE f.follower_id = :me")
-                .append("                        UNION ALL SELECT :me)");
+                .append("                                                 AND f.status = 'ACCEPTED'")
+                .append("                        UNION ALL SELECT :me)")
+                // a follow cannot exist across a block, but a block that races a follow must not leak posts either
+                .append(" AND NOT EXISTS (SELECT 1 FROM blocks b WHERE (b.blocker_id = :me AND b.blocked_id = p.author_id)")
+                .append("                  OR (b.blocked_id = :me AND b.blocker_id = p.author_id))");
         MapSqlParameterSource params = new MapSqlParameterSource().addValue("me", me).addValue("limit", limit);
         if (afterCreatedAt != null && afterId != null) {
             sql.append(" AND (p.created_at, p.id) < (:afterCreatedAt, :afterId)");

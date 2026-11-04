@@ -8,6 +8,7 @@ import com.sashank.paraspa.entity.PostMedia;
 import com.sashank.paraspa.entity.Skill;
 import com.sashank.paraspa.entity.User;
 import com.sashank.paraspa.exception.BadRequestException;
+import com.sashank.paraspa.enums.UserRole;
 import com.sashank.paraspa.event.PostLikedEvent;
 import com.sashank.paraspa.exception.ResourceNotFoundException;
 import com.sashank.paraspa.repository.FollowRepository;
@@ -22,7 +23,10 @@ import com.sashank.paraspa.util.CursorUtil;
 import com.sashank.paraspa.util.DtoMapper;
 import com.sashank.paraspa.util.ImageFormat;
 import com.sashank.paraspa.util.PaginationUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.sashank.paraspa.service.AccessPolicy;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -39,6 +43,8 @@ import java.util.UUID;
 
 @Service
 public class PostServiceImpl implements PostService {
+
+    private static final Logger log = LoggerFactory.getLogger(PostServiceImpl.class);
 
     public static final int MAX_CONTENT_LENGTH = 2000;
     public static final int MAX_SKILL_TAGS = 3;
@@ -68,6 +74,9 @@ public class PostServiceImpl implements PostService {
 
     @Autowired
     private ApplicationEventPublisher eventPublisher;
+
+    @Autowired
+    private AccessPolicy accessPolicy;
 
     @Autowired
     private DtoMapper dtoMapper;
@@ -152,7 +161,9 @@ public class PostServiceImpl implements PostService {
     @Override
     @Transactional(readOnly = true)
     public PostResponse getPost(Long userId, Long postId) {
-        return toResponse(findPost(postId), userId);
+        Post post = findPost(postId);
+        accessPolicy.requirePostVisible(userId, post);
+        return toResponse(post, userId);
     }
 
     @Override
@@ -160,8 +171,8 @@ public class PostServiceImpl implements PostService {
     public List<PostResponse> getExplorePosts(Long userId, Long skillId, int page, int size) {
         Pageable pageable = PaginationUtil.toPageable(page, size);
         List<Post> posts = skillId == null
-                ? postRepository.findAllByOrderByCreatedAtDescIdDesc(pageable)
-                : postRepository.findBySkills_IdOrderByCreatedAtDescIdDesc(skillId, pageable);
+                ? postRepository.findVisibleToViewer(userId, pageable)
+                : postRepository.findVisibleToViewerBySkill(userId, skillId, pageable);
         return toResponses(posts, userId);
     }
 
@@ -170,7 +181,7 @@ public class PostServiceImpl implements PostService {
     public List<PostResponse> getFeed(Long userId, Long skillId, int page, int size) {
         Pageable pageable = PaginationUtil.toPageable(page, size);
 
-        List<Long> authorIds = new ArrayList<>(followRepository.findFollowingIdsByFollowerId(userId));
+        List<Long> authorIds = new ArrayList<>(followRepository.findAcceptedFollowingIds(userId));
         authorIds.add(userId);
 
         List<Post> posts = skillId == null
@@ -185,9 +196,9 @@ public class PostServiceImpl implements PostService {
         PaginationUtil.requireValidSize(size);
         CursorUtil.Keyset after = CursorUtil.decodeKeyset(cursor);
 
-        if (!userRepository.existsById(authorId)) {
-            throw new ResourceNotFoundException("User not found");
-        }
+        User author = userRepository.findById(authorId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        accessPolicy.requireCanSeePostsOf(viewerId, author);   // 404 when blocked, 403 for a private account you do not follow
 
         // fetch one extra row: its presence tells us there is a next page
         Pageable pageable = PageRequest.of(0, size + 1);
@@ -209,7 +220,11 @@ public class PostServiceImpl implements PostService {
         Post post = findPost(postId);
 
         if (!post.getAuthor().getId().equals(userId)) {
-            throw new ResourceNotFoundException("Post not found");
+            // an admin may remove any post; anyone else gets the usual 404 for somebody else's post
+            if (!isAdmin(userId)) {
+                throw new ResourceNotFoundException("Post not found");
+            }
+            log.info("Admin {} deleted post {} by user {}", userId, postId, post.getAuthor().getId());
         }
 
         List<String> mediaUrls = post.getMedia().stream().map(PostMedia::getUrl).toList();
@@ -230,6 +245,7 @@ public class PostServiceImpl implements PostService {
             throw new ResourceNotFoundException("User not found");
         }
         Post likedPost = findPost(postId);
+        accessPolicy.requirePostVisible(userId, likedPost);
 
         // The INSERT ... ON CONFLICT DO NOTHING is atomic: when the same user sends this twice at once, exactly
         // one request inserts a row and only that one bumps the counter, so likeCount always equals the row count.
@@ -245,7 +261,7 @@ public class PostServiceImpl implements PostService {
     @Override
     @Transactional
     public void unlikePost(Long userId, Long postId) {
-        findPost(postId);
+        accessPolicy.requirePostVisible(userId, findPost(postId));
 
         // DELETE reports whether a row was really removed, so a repeated or concurrent unlike cannot double-decrement
         if (postLikeRepository.deleteLike(postId, userId) == 1) {
@@ -255,16 +271,20 @@ public class PostServiceImpl implements PostService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<UserResponse> getLikes(Long postId, int page, int size) {
+    public List<UserResponse> getLikes(Long viewerId, Long postId, int page, int size) {
         Pageable pageable = PaginationUtil.toPageable(page, size);
-        findPost(postId);
+        accessPolicy.requirePostVisible(viewerId, findPost(postId));
 
-        return postLikeRepository.findByPostIdOrderByCreatedAtDescIdDesc(postId, pageable).stream()
+        return postLikeRepository.findVisibleLikes(postId, viewerId, pageable).stream()
                 .map(like -> dtoMapper.toPublicUserResponse(like.getUser()))
                 .toList();
     }
 
     // ----------------------------------------------------------------- helpers
+
+    private boolean isAdmin(Long userId) {
+        return userRepository.findRoleById(userId).map(role -> role == UserRole.ADMIN).orElse(false);
+    }
 
     private Post findPost(Long postId) {
         return postRepository.findById(postId)

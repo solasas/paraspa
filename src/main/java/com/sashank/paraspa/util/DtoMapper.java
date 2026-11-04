@@ -20,6 +20,7 @@ public class DtoMapper {
                 .bio(user.getBio())
                 .city(user.getCity())
                 .avatarUrl(user.getAvatarUrl())
+                .privateAccount(user.isPrivate())
                 .build();
     }
 
@@ -161,6 +162,7 @@ public class DtoMapper {
         }
         return FollowResponse.builder()
                 .id(follow.getId())
+                .status(follow.getStatus())
                 .follower(toPublicUserResponse(follow.getFollower()))
                 .following(toPublicUserResponse(follow.getFollowing()))
                 .createdAt(follow.getCreatedAt())

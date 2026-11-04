@@ -17,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
@@ -40,7 +39,7 @@ public class FeedServiceImpl implements FeedService {
     private PostAssembler postAssembler;
 
     /** Replaceable in tests. */
-    private Clock clock = Clock.systemUTC();
+    private Clock clock = Clock.systemDefaultZone();   // the same zone createdAt (LocalDateTime.now()) is written in
 
     void setClock(Clock clock) {
         this.clock = clock;
@@ -75,7 +74,8 @@ public class FeedServiceImpl implements FeedService {
         }
         // first page: rank as of now (whole seconds); later pages: rank as of the same instant
         long asOfEpoch = after == null ? nowEpoch : after.asOfEpochSeconds();
-        LocalDateTime asOf = LocalDateTime.ofEpochSecond(asOfEpoch, 0, ZoneOffset.UTC).truncatedTo(ChronoUnit.SECONDS);
+        // created_at is stored as the server's local wall-clock time, so "as of" must be the same kind of value
+        LocalDateTime asOf = LocalDateTime.ofInstant(Instant.ofEpochSecond(asOfEpoch), clock.getZone()).truncatedTo(ChronoUnit.SECONDS);
 
         List<TrendingPostQuery.Scored> ranked = trendingPostQuery.findTrending(
                 userId, skillId, asOf,

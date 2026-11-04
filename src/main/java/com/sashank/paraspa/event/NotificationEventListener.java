@@ -49,6 +49,20 @@ public class NotificationEventListener {
 
     @Async(AsyncConfig.NOTIFICATION_EXECUTOR)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void onFollowRequested(FollowRequestedEvent event) {
+        // a private account: tell its owner someone asked; points at the requester
+        deliver(event.ownerId(), event.followerId(), NotificationType.FOLLOW_REQUEST, NotificationTargetType.USER, event.followerId());
+    }
+
+    @Async(AsyncConfig.NOTIFICATION_EXECUTOR)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void onFollowRequestAccepted(FollowRequestAcceptedEvent event) {
+        // tell the requester their request was accepted; points at the account owner
+        deliver(event.followerId(), event.ownerId(), NotificationType.FOLLOW_ACCEPTED, NotificationTargetType.USER, event.ownerId());
+    }
+
+    @Async(AsyncConfig.NOTIFICATION_EXECUTOR)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onPostLiked(PostLikedEvent event) {
         deliver(event.postAuthorId(), event.likerId(), NotificationType.LIKE, NotificationTargetType.POST, event.postId());
     }

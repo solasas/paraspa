@@ -290,7 +290,7 @@ class PostControllerTest {
 
     @Test
     void getLikes_shouldDefaultToFirstPageOfTwenty_andNotExposeEmails() throws Exception {
-        when(postService.getLikes(anyLong(), anyInt(), anyInt())).thenReturn(List.of(
+        when(postService.getLikes(anyLong(), anyLong(), anyInt(), anyInt())).thenReturn(List.of(
                 com.sashank.paraspa.dto.response.UserResponse.builder().id(5L).name("Ben").build()));
 
         mvc.perform(get("/api/posts/100/likes").requestAttr("userId", 1L))
@@ -298,13 +298,13 @@ class PostControllerTest {
                 .andExpect(jsonPath("$[0].name").value("Ben"))
                 .andExpect(jsonPath("$[0].email").value((Object) null));
 
-        verify(postService).getLikes(100L, 0, 20);
+        verify(postService).getLikes(1L, 100L, 0, 20);
     }
 
     @Test
     void getLikes_shouldPassPageAndSize_andReturn400ForBadValues() throws Exception {
-        when(postService.getLikes(100L, 2, 50)).thenReturn(List.of());
-        when(postService.getLikes(100L, 0, 500)).thenThrow(new BadRequestException("page must be >= 0 and size must be between 1 and 100"));
+        when(postService.getLikes(1L, 100L, 2, 50)).thenReturn(List.of());
+        when(postService.getLikes(1L, 100L, 0, 500)).thenThrow(new BadRequestException("page must be >= 0 and size must be between 1 and 100"));
 
         mvc.perform(get("/api/posts/100/likes").requestAttr("userId", 1L).param("page", "2").param("size", "50"))
                 .andExpect(status().isOk());

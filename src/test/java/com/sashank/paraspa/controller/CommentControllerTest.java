@@ -115,7 +115,7 @@ class CommentControllerTest {
     void getComments_shouldDefaultToTwentyAndReturnTheCursorEnvelopeWithNestedReplies() throws Exception {
         CommentResponse reply = CommentResponse.builder().id(11L).parentId(10L).content("reply").build();
         CommentResponse top = CommentResponse.builder().id(10L).content("top").replies(List.of(reply)).build();
-        when(commentService.getComments(anyLong(), any(), anyInt())).thenReturn(new CursorPageResponse<>(List.of(top), "abc"));
+        when(commentService.getComments(anyLong(), anyLong(), any(), anyInt())).thenReturn(new CursorPageResponse<>(List.of(top), "abc"));
 
         mvc.perform(get("/api/posts/100/comments").requestAttr("userId", 1L))
                 .andExpect(status().isOk())
@@ -124,13 +124,13 @@ class CommentControllerTest {
                 .andExpect(jsonPath("$.items[0].replies[0].parentId").value(10))
                 .andExpect(jsonPath("$.nextCursor").value("abc"));
 
-        verify(commentService).getComments(100L, null, 20);
+        verify(commentService).getComments(1L, 100L, null, 20);
     }
 
     @Test
     void getComments_shouldPassCursorAndSize_andReturn400ForABadCursor() throws Exception {
-        when(commentService.getComments(100L, "abc", 5)).thenReturn(new CursorPageResponse<>(List.of(), null));
-        when(commentService.getComments(100L, "bad", 20)).thenThrow(new BadRequestException("Invalid cursor"));
+        when(commentService.getComments(1L, 100L, "abc", 5)).thenReturn(new CursorPageResponse<>(List.of(), null));
+        when(commentService.getComments(1L, 100L, "bad", 20)).thenThrow(new BadRequestException("Invalid cursor"));
 
         mvc.perform(get("/api/posts/100/comments").requestAttr("userId", 1L).param("cursor", "abc").param("size", "5"))
                 .andExpect(status().isOk())

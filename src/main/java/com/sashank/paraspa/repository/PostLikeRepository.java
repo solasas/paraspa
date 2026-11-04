@@ -38,9 +38,11 @@ public interface PostLikeRepository extends JpaRepository<PostLike, Long> {
     @Query("SELECT l.post.id FROM PostLike l WHERE l.user.id = :userId AND l.post.id IN :postIds")
     List<Long> findLikedPostIds(@Param("userId") Long userId, @Param("postIds") Collection<Long> postIds);
 
-    /** Who liked the post, most recent like first. Fetches the users in the same query. */
+    /** Who liked the post, most recent like first, minus users blocked either way. Fetches the users in the same query. */
     @EntityGraph(attributePaths = "user")
-    List<PostLike> findByPostIdOrderByCreatedAtDescIdDesc(Long postId, Pageable pageable);
+    @Query("SELECT l FROM PostLike l WHERE l.post.id = :postId AND " + QueryFragments.LIKER_NOT_BLOCKED
+            + " ORDER BY l.createdAt DESC, l.id DESC")
+    List<PostLike> findVisibleLikes(@Param("postId") Long postId, @Param("viewerId") Long viewerId, Pageable pageable);
 
     @Modifying
     @Query("DELETE FROM PostLike l WHERE l.post.id = :postId")

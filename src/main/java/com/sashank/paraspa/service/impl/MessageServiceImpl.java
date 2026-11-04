@@ -14,6 +14,7 @@ import com.sashank.paraspa.service.MessageService;
 import com.sashank.paraspa.util.DtoMapper;
 import com.sashank.paraspa.util.PaginationUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.sashank.paraspa.service.BlockService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
@@ -36,6 +37,9 @@ public class MessageServiceImpl implements MessageService {
     private ApplicationEventPublisher eventPublisher;
 
     @Autowired
+    private BlockService blockService;
+
+    @Autowired
     private DtoMapper dtoMapper;
 
     @Override
@@ -49,6 +53,7 @@ public class MessageServiceImpl implements MessageService {
 
         User receiver = userRepository.findById(request.getReceiverId())
                 .orElseThrow(() -> new ResourceNotFoundException("Receiver user not found"));
+        blockService.requireNoBlock(senderId, receiver.getId());   // no messages across a block, in either direction
 
         Message message = Message.builder()
                 .sender(sender)

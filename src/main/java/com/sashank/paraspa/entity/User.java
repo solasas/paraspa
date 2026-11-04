@@ -37,6 +37,11 @@ public class User {
     @Column(length = 500)
     private String avatarUrl;
 
+    /** A private account's posts are visible only to its accepted followers; following it needs the owner's approval. */
+    @Column(name = "is_private", nullable = false)
+    @Builder.Default
+    private boolean isPrivate = false;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @Builder.Default

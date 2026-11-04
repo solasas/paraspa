@@ -21,8 +21,15 @@ public class PublicProfileResponse {
     private RatingSummaryResponse ratingSummary;
     private List<UserSkillResponse> teachSkills;
     private List<UserSkillResponse> learnSkills;
+    /** A private account: following it needs the owner's approval, and its posts are for accepted followers only. */
+    @JsonProperty("isPrivate")
+    private boolean privateAccount;
     private long followersCount;
     private long followingCount;
     @JsonProperty("isFollowedByMe")
     private boolean followedByMe;
+
+    /** I asked to follow this private account and am waiting for the owner. */
+    @JsonProperty("isFollowRequestedByMe")
+    private boolean followRequestedByMe;
 }

@@ -15,17 +15,24 @@ import java.util.Optional;
 @Repository
 public interface CommentRepository extends JpaRepository<Comment, Long> {
 
-    /** First page of a post's top-level comments, oldest first (creation order = id order). */
+    /** First page of a post's top-level comments, oldest first (creation order = id order), minus blocked authors. */
     @EntityGraph(attributePaths = "author")
-    List<Comment> findByPostIdAndParentIsNullOrderByIdAsc(Long postId, Pageable pageable);
+    @Query("SELECT c FROM Comment c WHERE c.post.id = :postId AND c.parent IS NULL AND " + QueryFragments.COMMENT_AUTHOR_NOT_BLOCKED
+            + " ORDER BY c.id ASC")
+    List<Comment> findTopLevelVisible(@Param("postId") Long postId, @Param("viewerId") Long viewerId, Pageable pageable);
 
-    /** Next page: top-level comments created after the cursor comment. */
+    /** Next page: top-level comments created after the cursor comment, minus blocked authors. */
     @EntityGraph(attributePaths = "author")
-    List<Comment> findByPostIdAndParentIsNullAndIdGreaterThanOrderByIdAsc(Long postId, Long afterId, Pageable pageable);
+    @Query("SELECT c FROM Comment c WHERE c.post.id = :postId AND c.parent IS NULL AND c.id > :afterId AND "
+            + QueryFragments.COMMENT_AUTHOR_NOT_BLOCKED + " ORDER BY c.id ASC")
+    List<Comment> findTopLevelVisibleAfter(@Param("postId") Long postId, @Param("afterId") Long afterId,
+                                           @Param("viewerId") Long viewerId, Pageable pageable);
 
-    /** Every reply to the given top-level comments, oldest first (one query for a whole page). */
+    /** Every reply to the given top-level comments, oldest first, minus blocked authors (one query for a page). */
     @EntityGraph(attributePaths = "author")
-    List<Comment> findByParentIdInOrderByIdAsc(Collection<Long> parentIds);
+    @Query("SELECT c FROM Comment c WHERE c.parent.id IN :parentIds AND " + QueryFragments.COMMENT_AUTHOR_NOT_BLOCKED
+            + " ORDER BY c.id ASC")
+    List<Comment> findRepliesVisible(@Param("parentIds") Collection<Long> parentIds, @Param("viewerId") Long viewerId);
 
     Optional<Comment> findByIdAndPostId(Long id, Long postId);
 

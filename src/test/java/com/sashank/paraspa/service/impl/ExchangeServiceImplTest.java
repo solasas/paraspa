@@ -51,6 +51,9 @@ class ExchangeServiceImplTest {
     private DtoMapper dtoMapper;
 
     @Mock
+    private com.sashank.paraspa.service.BlockService blockService;
+
+    @Mock
     private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
@@ -350,6 +353,38 @@ class ExchangeServiceImplTest {
 
         exchangeService.rejectExchange(2L, 100L);
 
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+
+    // ------------------------------------------------------------ blocks
+
+    @Test
+    void createExchange_acrossABlock_isRefused_nothingSaved_noEvent() {
+        CreateExchangeRequest request = CreateExchangeRequest.builder().receiverId(2L).offeredSkillId(10L).wantedSkillId(20L).build();
+        when(userRepository.findById(1L)).thenReturn(Optional.of(User.builder().id(1L).build()));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(User.builder().id(2L).build()));
+        org.mockito.Mockito.doThrow(new BadRequestException("You have blocked this user. Unblock them first."))
+                .when(blockService).requireNoBlock(1L, 2L);
+
+        assertThatThrownBy(() -> exchangeService.createExchange(1L, request)).isInstanceOf(BadRequestException.class);
+
+        verify(exchangeRepository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    void acceptExchange_requestedBeforeABlock_cannotBeAcceptedAfterwards() {
+        SkillExchange exchange = SkillExchange.builder().id(100L)
+                .requester(User.builder().id(1L).build()).receiver(User.builder().id(2L).build())
+                .status(ExchangeStatus.PENDING).build();
+        when(exchangeRepository.findById(100L)).thenReturn(Optional.of(exchange));
+        org.mockito.Mockito.doThrow(new ResourceNotFoundException("User not found")).when(blockService).requireNoBlock(2L, 1L);
+
+        assertThatThrownBy(() -> exchangeService.acceptExchange(2L, 100L)).isInstanceOf(ResourceNotFoundException.class);
+
+        assertThat(exchange.getStatus()).isEqualTo(ExchangeStatus.PENDING);
+        verify(exchangeRepository, never()).save(any());
         verify(eventPublisher, never()).publishEvent(any(Object.class));
     }
 }

@@ -29,7 +29,8 @@ import java.util.Set;
 public class NotificationServiceImpl implements NotificationService {
 
     /** Things that happen once and may be repeated by toggling (like/unlike, follow/unfollow): notify only once. */
-    private static final Set<NotificationType> COLLAPSED_FOREVER = EnumSet.of(NotificationType.LIKE, NotificationType.FOLLOW);
+    private static final Set<NotificationType> COLLAPSED_FOREVER = EnumSet.of(NotificationType.LIKE, NotificationType.FOLLOW,
+            NotificationType.FOLLOW_REQUEST, NotificationType.FOLLOW_ACCEPTED);
 
     @Autowired
     private NotificationRepository notificationRepository;

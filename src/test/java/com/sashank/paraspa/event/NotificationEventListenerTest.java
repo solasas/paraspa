@@ -162,7 +162,7 @@ class NotificationEventListenerTest {
         Method[] handlers = Arrays.stream(NotificationEventListener.class.getDeclaredMethods())
                 .filter(m -> m.getName().startsWith("on")).toArray(Method[]::new);
 
-        assertThat(handlers).hasSize(6);   // one per event type
+        assertThat(handlers).hasSize(8);   // one per event type
         for (Method handler : handlers) {
             TransactionalEventListener annotation = handler.getAnnotation(TransactionalEventListener.class);
             assertThat(annotation).as(handler.getName()).isNotNull();

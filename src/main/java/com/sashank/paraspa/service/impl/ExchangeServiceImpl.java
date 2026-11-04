@@ -19,6 +19,7 @@ import com.sashank.paraspa.service.ExchangeService;
 import com.sashank.paraspa.util.DtoMapper;
 import com.sashank.paraspa.util.PaginationUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.sashank.paraspa.service.BlockService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import java.util.List;
@@ -42,6 +43,9 @@ public class ExchangeServiceImpl implements ExchangeService {
     private ApplicationEventPublisher eventPublisher;
 
     @Autowired
+    private BlockService blockService;
+
+    @Autowired
     private DtoMapper dtoMapper;
 
     @Override
@@ -55,6 +59,8 @@ public class ExchangeServiceImpl implements ExchangeService {
         if (requester.getId().equals(receiver.getId())) {
             throw new BadRequestException("Cannot send exchange request to yourself");
         }
+
+        blockService.requireNoBlock(requester.getId(), receiver.getId());   // no exchanges across a block
 
         Skill offeredSkill = skillRepository.findById(request.getOfferedSkillId())
                 .orElseThrow(() -> new ResourceNotFoundException("Offered skill not found"));
@@ -132,6 +138,7 @@ public class ExchangeServiceImpl implements ExchangeService {
         if (!exchange.getStatus().equals(ExchangeStatus.PENDING)) {
             throw new BadRequestException("Exchange is not in pending status");
         }
+        blockService.requireNoBlock(userId, exchange.getRequester().getId());   // a request made before a block cannot be accepted
 
         exchange.setStatus(ExchangeStatus.ACCEPTED);
         exchange = exchangeRepository.save(exchange);

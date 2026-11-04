@@ -14,6 +14,7 @@ import com.sashank.paraspa.repository.PostLikeRepository;
 import com.sashank.paraspa.repository.PostRepository;
 import com.sashank.paraspa.repository.SkillRepository;
 import com.sashank.paraspa.repository.UserRepository;
+import com.sashank.paraspa.service.AccessPolicy;
 import com.sashank.paraspa.storage.StorageService;
 import com.sashank.paraspa.util.CursorUtil;
 import com.sashank.paraspa.util.DtoMapper;
@@ -64,6 +65,7 @@ class PostServiceImplTest {
     @Mock private UserRepository userRepository;
     @Mock private SkillRepository skillRepository;
     @Mock private StorageService storageService;
+    @Mock private AccessPolicy accessPolicy;
     @Mock private DtoMapper dtoMapper;
 
     @Mock
@@ -413,7 +415,7 @@ class PostServiceImplTest {
     @Test
     void getUserPosts_firstPageShouldFetchOneExtraRowAndReturnNewestFirst() {
         LocalDateTime t = LocalDateTime.of(2026, 11, 4, 12, 0);
-        when(userRepository.existsById(2L)).thenReturn(true);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(User.builder().id(2L).build()));
         // repository contract: newest first; size 2 => fetch 3
         when(postRepository.findByAuthorIdOrderByCreatedAtDescIdDesc(eq(2L), any(Pageable.class)))
                 .thenReturn(List.of(post(30, t.plusMinutes(3)), post(20, t.plusMinutes(2)), post(10, t.plusMinutes(1))));
@@ -433,7 +435,7 @@ class PostServiceImplTest {
     @Test
     void getUserPosts_nextCursorShouldPointAtTheLastReturnedPost() {
         LocalDateTime t = LocalDateTime.of(2026, 11, 4, 12, 0, 0, 123_456_000);
-        when(userRepository.existsById(2L)).thenReturn(true);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(User.builder().id(2L).build()));
         when(postRepository.findByAuthorIdOrderByCreatedAtDescIdDesc(eq(2L), any(Pageable.class)))
                 .thenReturn(List.of(post(30, t.plusMinutes(3)), post(20, t.plusMinutes(2)), post(10, t.plusMinutes(1))));
         stubMapping();
@@ -448,7 +450,7 @@ class PostServiceImplTest {
     @Test
     void getUserPosts_lastPageShouldHaveNoNextCursor() {
         LocalDateTime t = LocalDateTime.of(2026, 11, 4, 12, 0);
-        when(userRepository.existsById(2L)).thenReturn(true);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(User.builder().id(2L).build()));
         when(postRepository.findByAuthorIdOrderByCreatedAtDescIdDesc(eq(2L), any(Pageable.class)))
                 .thenReturn(List.of(post(20, t.plusMinutes(2)), post(10, t.plusMinutes(1))));
         stubMapping();
@@ -464,7 +466,7 @@ class PostServiceImplTest {
         // two posts share a timestamp: only (createdAt, id) together identify the position
         LocalDateTime same = LocalDateTime.of(2026, 11, 4, 12, 0, 0, 500_000_000);
         String cursor = CursorUtil.encode(same, 21L);
-        when(userRepository.existsById(2L)).thenReturn(true);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(User.builder().id(2L).build()));
         when(postRepository.findByAuthorIdBefore(eq(2L), eq(same), eq(21L), any(Pageable.class)))
                 .thenReturn(List.of(post(20, same)));
         stubMapping();
@@ -481,7 +483,7 @@ class PostServiceImplTest {
         LocalDateTime t = LocalDateTime.of(2026, 11, 4, 12, 0);
         List<Post> all = List.of(post(50, t.plusMinutes(4)), post(40, t.plusMinutes(3)), post(30, t.plusMinutes(3)),
                 post(20, t.plusMinutes(2)), post(10, t.plusMinutes(1)));
-        when(userRepository.existsById(2L)).thenReturn(true);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(User.builder().id(2L).build()));
         when(postRepository.findByAuthorIdOrderByCreatedAtDescIdDesc(eq(2L), any(Pageable.class)))
                 .thenAnswer(invocation -> all.stream().limit(((Pageable) invocation.getArgument(1)).getPageSize()).toList());
         when(postRepository.findByAuthorIdBefore(eq(2L), any(LocalDateTime.class), any(Long.class), any(Pageable.class)))
@@ -510,7 +512,7 @@ class PostServiceImplTest {
 
     @Test
     void getUserPosts_shouldReturnEmptyPageForAnAuthorWithNoPosts() {
-        when(userRepository.existsById(2L)).thenReturn(true);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(User.builder().id(2L).build()));
         when(postRepository.findByAuthorIdOrderByCreatedAtDescIdDesc(eq(2L), any(Pageable.class))).thenReturn(List.of());
 
         CursorPageResponse<PostResponse> page = postService.getUserPosts(1L, 2L, null, 20);
@@ -532,7 +534,7 @@ class PostServiceImplTest {
 
     @Test
     void getUserPosts_shouldThrowResourceNotFoundException_whenAuthorMissing() {
-        when(userRepository.existsById(9L)).thenReturn(false);
+        when(userRepository.findById(9L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> postService.getUserPosts(1L, 9L, null, 20))
                 .isInstanceOf(ResourceNotFoundException.class)
@@ -544,7 +546,7 @@ class PostServiceImplTest {
         LocalDateTime t = LocalDateTime.of(2026, 11, 4, 12, 0);
         Post liked = post(20, t.plusMinutes(2));
         Post notLiked = post(10, t.plusMinutes(1));
-        when(userRepository.existsById(2L)).thenReturn(true);
+        when(userRepository.findById(2L)).thenReturn(Optional.of(User.builder().id(2L).build()));
         when(postRepository.findByAuthorIdOrderByCreatedAtDescIdDesc(eq(2L), any(Pageable.class)))
                 .thenReturn(List.of(liked, notLiked));
         when(postLikeRepository.findLikedPostIds(eq(1L), anyCollection())).thenReturn(List.of(20L));
@@ -562,7 +564,7 @@ class PostServiceImplTest {
 
     @Test
     void getFeed_shouldIncludeFollowedUsersAndSelf() {
-        when(followRepository.findFollowingIdsByFollowerId(1L)).thenReturn(List.of(2L, 3L));
+        when(followRepository.findAcceptedFollowingIds(1L)).thenReturn(List.of(2L, 3L));
         when(postRepository.findByAuthorIdInOrderByCreatedAtDescIdDesc(any(), any(Pageable.class))).thenReturn(List.of());
 
         postService.getFeed(1L, null, 0, 20);
@@ -575,7 +577,7 @@ class PostServiceImplTest {
 
     @Test
     void getFeed_shouldFilterBySkillTag_whenSkillIdGiven() {
-        when(followRepository.findFollowingIdsByFollowerId(1L)).thenReturn(List.of());
+        when(followRepository.findAcceptedFollowingIds(1L)).thenReturn(List.of());
         when(postRepository.findByAuthorIdInAndSkills_IdOrderByCreatedAtDescIdDesc(any(), eq(7L), any(Pageable.class)))
                 .thenReturn(List.of());
 
@@ -586,11 +588,11 @@ class PostServiceImplTest {
 
     @Test
     void getExplorePosts_shouldFilterBySkillTag_whenSkillIdGiven() {
-        when(postRepository.findBySkills_IdOrderByCreatedAtDescIdDesc(eq(7L), any(Pageable.class))).thenReturn(List.of());
+        when(postRepository.findVisibleToViewerBySkill(eq(1L), eq(7L), any(Pageable.class))).thenReturn(List.of());
 
         assertThat(postService.getExplorePosts(1L, 7L, 0, 20)).isEmpty();
 
-        verify(postRepository, never()).findAllByOrderByCreatedAtDescIdDesc(any());
+        verify(postRepository, never()).findVisibleToViewer(any(), any());
     }
 
     @Test
@@ -724,14 +726,14 @@ class PostServiceImplTest {
         com.sashank.paraspa.dto.response.UserResponse mapped =
                 com.sashank.paraspa.dto.response.UserResponse.builder().id(5L).build();
         when(postRepository.findById(100L)).thenReturn(Optional.of(Post.builder().id(100L).build()));
-        when(postLikeRepository.findByPostIdOrderByCreatedAtDescIdDesc(eq(100L), any(Pageable.class)))
+        when(postLikeRepository.findVisibleLikes(eq(100L), eq(1L), any(Pageable.class)))
                 .thenReturn(List.of(com.sashank.paraspa.entity.PostLike.builder().user(liker).build()));
         when(dtoMapper.toPublicUserResponse(liker)).thenReturn(mapped);
 
-        assertThat(postService.getLikes(100L, 2, 30)).containsExactly(mapped);
+        assertThat(postService.getLikes(1L, 100L, 2, 30)).containsExactly(mapped);
 
         ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
-        verify(postLikeRepository).findByPostIdOrderByCreatedAtDescIdDesc(eq(100L), pageable.capture());
+        verify(postLikeRepository).findVisibleLikes(eq(100L), eq(1L), pageable.capture());
         assertThat(pageable.getValue().getPageNumber()).isEqualTo(2);
         assertThat(pageable.getValue().getPageSize()).isEqualTo(30);
         verify(dtoMapper, never()).toUserResponse(any());   // the variant that carries the email is never used
@@ -740,19 +742,19 @@ class PostServiceImplTest {
     @Test
     void getLikes_shouldReturnEmptyListWhenNobodyLiked() {
         when(postRepository.findById(100L)).thenReturn(Optional.of(Post.builder().id(100L).build()));
-        when(postLikeRepository.findByPostIdOrderByCreatedAtDescIdDesc(eq(100L), any(Pageable.class)))
+        when(postLikeRepository.findVisibleLikes(eq(100L), eq(1L), any(Pageable.class)))
                 .thenReturn(List.of());
 
-        assertThat(postService.getLikes(100L, 0, 20)).isEmpty();
+        assertThat(postService.getLikes(1L, 100L, 0, 20)).isEmpty();
     }
 
     @Test
     void getLikes_shouldRejectInvalidPagingAndMissingPost() {
-        assertThatThrownBy(() -> postService.getLikes(100L, 0, 101)).isInstanceOf(BadRequestException.class);
-        assertThatThrownBy(() -> postService.getLikes(100L, -1, 20)).isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> postService.getLikes(1L, 100L, 0, 101)).isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> postService.getLikes(1L, 100L, -1, 20)).isInstanceOf(BadRequestException.class);
 
         when(postRepository.findById(100L)).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> postService.getLikes(100L, 0, 20))
+        assertThatThrownBy(() -> postService.getLikes(1L, 100L, 0, 20))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("Post not found");
     }
@@ -794,5 +796,102 @@ class PostServiceImplTest {
         postService.unlikePost(1L, 100L);
 
         verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+
+    // ------------------------------------------------------------ blocks, private accounts, admin
+
+    private void denyPostFor(long viewerId, Post p) {
+        org.mockito.Mockito.doThrow(new ResourceNotFoundException("Post not found"))
+                .when(accessPolicy).requirePostVisible(viewerId, p);
+    }
+
+    @Test
+    void getPost_aHiddenPost_is404_andNothingIsMapped() {
+        Post p = Post.builder().id(100L).author(User.builder().id(2L).build()).build();
+        when(postRepository.findById(100L)).thenReturn(Optional.of(p));
+        denyPostFor(1L, p);
+
+        assertThatThrownBy(() -> postService.getPost(1L, 100L)).isInstanceOf(ResourceNotFoundException.class);
+
+        verifyNoInteractions(dtoMapper);
+    }
+
+    @Test
+    void likeAndUnlikeAndLikesList_onAHiddenPost_are404_andNothingChanges() {
+        Post p = Post.builder().id(100L).author(User.builder().id(2L).build()).build();
+        when(postRepository.findById(100L)).thenReturn(Optional.of(p));
+        when(userRepository.existsById(1L)).thenReturn(true);
+        denyPostFor(1L, p);
+
+        assertThatThrownBy(() -> postService.likePost(1L, 100L)).isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> postService.unlikePost(1L, 100L)).isInstanceOf(ResourceNotFoundException.class);
+        assertThatThrownBy(() -> postService.getLikes(1L, 100L, 0, 20)).isInstanceOf(ResourceNotFoundException.class);
+
+        verify(postLikeRepository, never()).insertIfAbsent(any(), any(), any());
+        verify(postLikeRepository, never()).deleteLike(any(), any());
+        verify(postLikeRepository, never()).findVisibleLikes(any(), any(), any());
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    void getUserPosts_asksTheAccessPolicy_soABlockedOrPrivateAuthorIsRefusedBeforeAnyQuery() {
+        User privateAuthor = User.builder().id(2L).isPrivate(true).build();
+        when(userRepository.findById(2L)).thenReturn(Optional.of(privateAuthor));
+        org.mockito.Mockito.doThrow(new com.sashank.paraspa.exception.ForbiddenException("This account is private"))
+                .when(accessPolicy).requireCanSeePostsOf(1L, privateAuthor);
+
+        assertThatThrownBy(() -> postService.getUserPosts(1L, 2L, null, 20))
+                .isInstanceOf(com.sashank.paraspa.exception.ForbiddenException.class).hasMessage("This account is private");
+
+        verify(postRepository, never()).findByAuthorIdOrderByCreatedAtDescIdDesc(any(), any());
+        verify(postRepository, never()).findByAuthorIdBefore(any(), any(), any(), any());
+    }
+
+    @Test
+    void getExplorePosts_usesTheVisibilityAwareQueryWithTheViewer() {
+        when(postRepository.findVisibleToViewer(eq(1L), any(Pageable.class))).thenReturn(List.of());
+
+        postService.getExplorePosts(1L, null, 0, 20);
+
+        verify(postRepository).findVisibleToViewer(eq(1L), any(Pageable.class));
+    }
+
+    @Test
+    void deletePost_anAdminMayDeleteSomebodyElsesPost_includingItsFiles() {
+        Post p = Post.builder().id(100L).author(User.builder().id(2L).build()).build();
+        p.getMedia().add(PostMedia.builder().post(p).url("/files/posts/a.png").position(0).build());
+        when(postRepository.findById(100L)).thenReturn(Optional.of(p));
+        when(userRepository.findRoleById(9L)).thenReturn(Optional.of(com.sashank.paraspa.enums.UserRole.ADMIN));
+
+        postService.deletePost(9L, 100L);
+
+        verify(postLikeRepository).deleteByPostId(100L);
+        verify(commentRepository).deleteByPostId(100L);
+        verify(postRepository).delete(p);
+        verify(storageService).delete("/files/posts/a.png");
+    }
+
+    @Test
+    void deletePost_anOrdinaryUserStillCannotDeleteSomebodyElsesPost() {
+        Post p = Post.builder().id(100L).author(User.builder().id(2L).build()).build();
+        when(postRepository.findById(100L)).thenReturn(Optional.of(p));
+        when(userRepository.findRoleById(3L)).thenReturn(Optional.of(com.sashank.paraspa.enums.UserRole.USER));
+
+        assertThatThrownBy(() -> postService.deletePost(3L, 100L))
+                .isInstanceOf(ResourceNotFoundException.class).hasMessage("Post not found");
+
+        verify(postRepository, never()).delete(any());
+    }
+
+    @Test
+    void deletePost_theAuthorNeedsNoRoleLookup() {
+        Post p = Post.builder().id(100L).author(User.builder().id(1L).build()).build();
+        when(postRepository.findById(100L)).thenReturn(Optional.of(p));
+
+        postService.deletePost(1L, 100L);
+
+        verify(userRepository, never()).findRoleById(any());
+        verify(postRepository).delete(p);
     }
 }

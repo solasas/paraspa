@@ -13,6 +13,7 @@ import com.sashank.paraspa.repository.UserSkillRepository;
 import com.sashank.paraspa.service.MatchService;
 import com.sashank.paraspa.util.DtoMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.sashank.paraspa.service.BlockService;
 import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,9 @@ public class MatchServiceImpl implements MatchService {
 
     @Autowired
     private UserSkillRepository userSkillRepository;
+
+    @Autowired
+    private BlockService blockService;
 
     @Autowired
     private DtoMapper dtoMapper;
@@ -50,6 +54,9 @@ public class MatchServiceImpl implements MatchService {
         Set<Long> candidateIds = new TreeSet<>(teachingWhatIWant.keySet());
         candidateIds.addAll(learningWhatITeach.keySet());
         candidateIds.remove(userId);
+        if (!candidateIds.isEmpty()) {
+            candidateIds.removeAll(blockService.getHiddenUserIds(userId));   // blocked either way: never matched (one query)
+        }
 
         return candidateIds.stream()
                 .map(candidateId -> {
@@ -75,6 +82,9 @@ public class MatchServiceImpl implements MatchService {
     public MatchResponse checkMatch(Long userId, Long otherUserId) {
         User otherUser = userRepository.findById(otherUserId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        if (blockService.isBlockedEitherWay(userId, otherUserId)) {
+            throw new ResourceNotFoundException("User not found");
+        }
 
         List<UserSkill> myLearnSkills = userSkillRepository.findByUserIdAndType(userId, SkillType.LEARN);
         List<UserSkill> myTeachSkills = userSkillRepository.findByUserIdAndType(userId, SkillType.TEACH);

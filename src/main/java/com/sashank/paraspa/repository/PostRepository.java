@@ -14,9 +14,17 @@ import java.util.List;
 @Repository
 public interface PostRepository extends JpaRepository<Post, Long> {
 
-    List<Post> findAllByOrderByCreatedAtDescIdDesc(Pageable pageable);
+    /**
+     * The general listing (GET /api/posts): newest first, only posts the viewer may see. The unfiltered "all posts"
+     * queries were removed so nothing can list a blocked user's or a private account's posts by accident.
+     */
+    @Query("SELECT p FROM Post p JOIN FETCH p.author WHERE " + QueryFragments.POST_VISIBLE
+            + " ORDER BY p.createdAt DESC, p.id DESC")
+    List<Post> findVisibleToViewer(@Param("viewerId") Long viewerId, Pageable pageable);
 
-    List<Post> findBySkills_IdOrderByCreatedAtDescIdDesc(Long skillId, Pageable pageable);
+    @Query("SELECT p FROM Post p JOIN FETCH p.author JOIN p.skills s WHERE s.id = :skillId AND " + QueryFragments.POST_VISIBLE
+            + " ORDER BY p.createdAt DESC, p.id DESC")
+    List<Post> findVisibleToViewerBySkill(@Param("viewerId") Long viewerId, @Param("skillId") Long skillId, Pageable pageable);
 
     List<Post> findByAuthorIdInOrderByCreatedAtDescIdDesc(Collection<Long> authorIds, Pageable pageable);
 

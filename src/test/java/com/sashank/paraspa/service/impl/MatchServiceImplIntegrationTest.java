@@ -41,7 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.H2Dialect",
         "spring.jpa.show-sql=false"
 })
-@Import({MatchServiceImpl.class, DtoMapper.class, CountingDataSourceConfig.class})
+@Import({MatchServiceImpl.class, BlockServiceImpl.class, DtoMapper.class, CountingDataSourceConfig.class})
 class MatchServiceImplIntegrationTest {
 
     @Autowired private MatchServiceImpl matchService;
@@ -168,8 +168,9 @@ class MatchServiceImplIntegrationTest {
         }
 
         // user lookup (1) + my learn list (1) + my teach list (1) + people who teach what I want (1)
-        // + people who want what I teach (1) = 5, for 10 users and for 200 users. The old code needed 2 per user.
-        assertThat(statementCounts).as("statements for 10, 50 and 200 users").containsOnly(5);
+        // + people who want what I teach (1) + who is blocked either way (1) = 6, for 10 users and for 200 users.
+        // The old code needed 2 per user.
+        assertThat(statementCounts).as("statements for 10, 50 and 200 users").containsOnly(6);
     }
 
     @Test
@@ -188,7 +189,7 @@ class MatchServiceImplIntegrationTest {
         matchService.findMatches(me.getId());
 
         List<String> sql = counter.statements().stream().map(String::toLowerCase).toList();
-        assertThat(sql).hasSize(5);
+        assertThat(sql).hasSize(6);
         // the two batched lookups bring the user along (join users); every list of skill rows brings its skill along
         assertThat(sql.stream().filter(q -> q.contains("join users")).count()).isEqualTo(2);
         assertThat(sql.stream().filter(q -> q.contains("join skills")).count()).isEqualTo(4);

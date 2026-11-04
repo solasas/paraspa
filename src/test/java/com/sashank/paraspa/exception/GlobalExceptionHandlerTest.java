@@ -83,4 +83,25 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody().getMessage()).contains("file");
     }
+
+    @Test
+    void forbiddenException_shouldBecome403WithItsMessage() {
+        ResponseEntity<ErrorResponse> response = handler.handleForbiddenException(
+                new ForbiddenException("This account is private"), request());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getBody().getStatus()).isEqualTo(403);
+        assertThat(response.getBody().getMessage()).isEqualTo("This account is private");
+    }
+
+    @Test
+    void accessDenied_fromMethodSecurity_shouldBecome403_notAServerError() {
+        // @PreAuthorize throws this inside the controller; without a handler the catch-all answered 500
+        ResponseEntity<ErrorResponse> response = handler.handleAccessDeniedException(
+                new org.springframework.security.access.AccessDeniedException("Access Denied"), request());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getBody().getStatus()).isEqualTo(403);
+        assertThat(response.getBody().getMessage()).doesNotContain("Access Denied");   // no framework text leaks
+    }
 }

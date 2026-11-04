@@ -37,6 +37,11 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     long countByRecipientIdAndReadFalse(Long recipientId);
 
+    /** Deletes every notification one of the two caused for the other (used when one blocks the other). */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("DELETE FROM Notification n WHERE (n.recipient.id = :a AND n.actor.id = :b) OR (n.recipient.id = :b AND n.actor.id = :a)")
+    int deleteBetween(@Param("a") Long a, @Param("b") Long b);
+
     /**
      * Marks one notification read, only if it belongs to the user. Returns the rows matched: 1 even when it was
      * already read (so the call is idempotent), 0 when it does not exist or is somebody else's.

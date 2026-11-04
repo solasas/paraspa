@@ -16,7 +16,7 @@ public interface PostService {
 
     PostResponse getPost(Long userId, Long postId);
 
-    /** Author only (anyone else gets a 404). Removes the post's likes, comments, image rows and image files. */
+    /** Author or admin (anyone else gets a 404). Removes the post's likes, comments, image rows and image files. */
     void deletePost(Long userId, Long postId);
 
     List<PostResponse> getExplorePosts(Long userId, Long skillId, int page, int size);
@@ -32,5 +32,5 @@ public interface PostService {
     void unlikePost(Long userId, Long postId);
 
     /** The users who liked the post, most recent like first. */
-    List<UserResponse> getLikes(Long postId, int page, int size);
+    List<UserResponse> getLikes(Long viewerId, Long postId, int page, int size);
 }
