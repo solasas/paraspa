@@ -3,13 +3,16 @@ package com.sashank.paraspa.controller;
 import com.sashank.paraspa.dto.request.CreateCommentRequest;
 import com.sashank.paraspa.dto.request.CreatePostRequest;
 import com.sashank.paraspa.dto.response.CommentResponse;
+import com.sashank.paraspa.dto.response.CursorPageResponse;
 import com.sashank.paraspa.dto.response.PostResponse;
 import com.sashank.paraspa.service.PostService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 
 @RestController
@@ -19,11 +22,23 @@ public class PostController {
     @Autowired
     private PostService postService;
 
-    @PostMapping("/posts")
+    /** Text-only post (JSON). */
+    @PostMapping(value = "/posts", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<PostResponse> createPost(
             @RequestAttribute("userId") Long userId,
             @Valid @RequestBody CreatePostRequest request) {
-        PostResponse response = postService.createPost(userId, request);
+        PostResponse response = postService.createPost(userId, request.getContent(), request.getSkillIds(), null);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    /** Post with up to 4 images (multipart/form-data): parts "content", repeated "skillIds", repeated "images". */
+    @PostMapping(value = "/posts", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<PostResponse> createPostWithImages(
+            @RequestAttribute("userId") Long userId,
+            @RequestParam(required = false) String content,
+            @RequestParam(required = false) List<Long> skillIds,
+            @RequestPart(name = "images", required = false) List<MultipartFile> images) {
+        PostResponse response = postService.createPost(userId, content, skillIds, images);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -61,12 +76,12 @@ public class PostController {
     }
 
     @GetMapping("/users/{authorId}/posts")
-    public ResponseEntity<List<PostResponse>> getUserPosts(
+    public ResponseEntity<CursorPageResponse<PostResponse>> getUserPosts(
             @RequestAttribute("userId") Long userId,
             @PathVariable Long authorId,
-            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "20") int size) {
-        return ResponseEntity.ok(postService.getUserPosts(userId, authorId, page, size));
+        return ResponseEntity.ok(postService.getUserPosts(userId, authorId, cursor, size));
     }
 
     @PostMapping("/posts/{postId}/like")

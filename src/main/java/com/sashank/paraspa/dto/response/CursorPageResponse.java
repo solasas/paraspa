@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.util.List;
+import java.util.function.Function;
 import java.util.function.ToLongFunction;
 
 /**
@@ -28,6 +29,14 @@ public class CursorPageResponse<T> {
         boolean hasMore = fetched.size() > size;
         List<T> items = hasMore ? List.copyOf(fetched.subList(0, size)) : List.copyOf(fetched);
         String nextCursor = hasMore ? CursorUtil.encode(keyOf.applyAsLong(items.get(items.size() - 1))) : null;
+        return new CursorPageResponse<>(items, nextCursor);
+    }
+
+    /** Same as {@code of} for orderings whose cursor is not a single id, e.g. {@code CursorUtil.encode(createdAt, id)}. */
+    public static <T> CursorPageResponse<T> ofCursor(List<T> fetched, int size, Function<T, String> cursorOf) {
+        boolean hasMore = fetched.size() > size;
+        List<T> items = hasMore ? List.copyOf(fetched.subList(0, size)) : List.copyOf(fetched);
+        String nextCursor = hasMore ? cursorOf.apply(items.get(items.size() - 1)) : null;
         return new CursorPageResponse<>(items, nextCursor);
     }
 }

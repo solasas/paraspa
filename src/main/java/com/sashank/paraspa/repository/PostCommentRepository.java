@@ -12,7 +12,5 @@ public interface PostCommentRepository extends JpaRepository<PostComment, Long> 
 
     Optional<PostComment> findByIdAndPostId(Long id, Long postId);
 
-    long countByPostId(Long postId);
-
     void deleteByPostId(Long postId);
 }

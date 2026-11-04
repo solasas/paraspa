@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -89,6 +90,13 @@ public class GlobalExceptionHandler {
                 "Request method '" + ex.getMethod() + "' is not supported for this endpoint", request);
     }
 
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleHttpMediaTypeNotSupportedException(
+            HttpMediaTypeNotSupportedException ex, WebRequest request) {
+        return build(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported Media Type",
+                "Content type is not supported here: send application/json or multipart/form-data as documented", request);
+    }
+
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<ErrorResponse> handleNoResourceFoundException(
             NoResourceFoundException ex, WebRequest request) {
@@ -98,7 +106,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ErrorResponse> handleMaxUploadSizeExceededException(
             MaxUploadSizeExceededException ex, WebRequest request) {
-        return build(HttpStatus.BAD_REQUEST, "Bad Request", "Uploaded file is too large (max 2 MB)", request);
+        return build(HttpStatus.BAD_REQUEST, "Bad Request", "Upload too large: each image may be at most 2 MB and a request at most 10 MB", request);
     }
 
     @ExceptionHandler(MissingServletRequestPartException.class)

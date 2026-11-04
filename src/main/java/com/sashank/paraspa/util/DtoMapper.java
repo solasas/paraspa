@@ -167,17 +167,20 @@ public class DtoMapper {
                 .build();
     }
 
-    public PostResponse toPostResponse(Post post, long likeCount, long commentCount, boolean likedByMe) {
+    public PostResponse toPostResponse(Post post, boolean likedByMe) {
         if (post == null) {
             return null;
         }
         return PostResponse.builder()
                 .id(post.getId())
                 .author(toPublicUserResponse(post.getAuthor()))
-                .skill(toSkillResponse(post.getSkill()))
                 .content(post.getContent())
-                .likeCount(likeCount)
-                .commentCount(commentCount)
+                .skills(post.getSkills().stream().map(this::toSkillResponse).collect(Collectors.toList()))
+                .media(post.getMedia().stream()
+                        .map(m -> PostMediaResponse.builder().url(m.getUrl()).position(m.getPosition()).build())
+                        .collect(Collectors.toList()))
+                .likeCount(post.getLikeCount())
+                .commentCount(post.getCommentCount())
                 .likedByMe(likedByMe)
                 .createdAt(post.getCreatedAt())
                 .build();

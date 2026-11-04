@@ -47,6 +47,15 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void unsupportedContentType_shouldBecome415NotServerError() {
+        ResponseEntity<ErrorResponse> response = handler.handleHttpMediaTypeNotSupportedException(
+                new org.springframework.web.HttpMediaTypeNotSupportedException("text/plain not supported"), request());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+        assertThat(response.getBody().getStatus()).isEqualTo(415);
+    }
+
+    @Test
     void unsupportedHttpMethod_shouldBecome405NotServerError() {
         ResponseEntity<ErrorResponse> response = handler.handleHttpRequestMethodNotSupportedException(
                 new org.springframework.web.HttpRequestMethodNotSupportedException("POST"), request());
