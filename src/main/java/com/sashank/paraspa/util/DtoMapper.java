@@ -19,7 +19,17 @@ public class DtoMapper {
                 .email(user.getEmail())
                 .bio(user.getBio())
                 .city(user.getCity())
+                .avatarUrl(user.getAvatarUrl())
                 .build();
+    }
+
+    /** Same as {@link #toUserResponse} but never includes the email; use for anything shown to other users. */
+    public UserResponse toPublicUserResponse(User user) {
+        UserResponse response = toUserResponse(user);
+        if (response != null) {
+            response.setEmail(null);
+        }
+        return response;
     }
 
     public UserResponse toUserResponseWithRatings(User user, Double avgRating, Long totalRatings) {
@@ -142,6 +152,47 @@ public class DtoMapper {
                 .reason(rescheduleRequest.getReason())
                 .status(rescheduleRequest.getStatus())
                 .createdAt(rescheduleRequest.getCreatedAt())
+                .build();
+    }
+
+    public FollowResponse toFollowResponse(Follow follow) {
+        if (follow == null) {
+            return null;
+        }
+        return FollowResponse.builder()
+                .id(follow.getId())
+                .follower(toPublicUserResponse(follow.getFollower()))
+                .following(toPublicUserResponse(follow.getFollowing()))
+                .createdAt(follow.getCreatedAt())
+                .build();
+    }
+
+    public PostResponse toPostResponse(Post post, long likeCount, long commentCount, boolean likedByMe) {
+        if (post == null) {
+            return null;
+        }
+        return PostResponse.builder()
+                .id(post.getId())
+                .author(toPublicUserResponse(post.getAuthor()))
+                .skill(toSkillResponse(post.getSkill()))
+                .content(post.getContent())
+                .likeCount(likeCount)
+                .commentCount(commentCount)
+                .likedByMe(likedByMe)
+                .createdAt(post.getCreatedAt())
+                .build();
+    }
+
+    public CommentResponse toCommentResponse(PostComment comment) {
+        if (comment == null) {
+            return null;
+        }
+        return CommentResponse.builder()
+                .id(comment.getId())
+                .postId(comment.getPost().getId())
+                .author(toPublicUserResponse(comment.getAuthor()))
+                .content(comment.getContent())
+                .createdAt(comment.getCreatedAt())
                 .build();
     }
 
