@@ -121,4 +121,40 @@ class CursorUtilTest {
         assertThat(page.getNextCursor()).isEqualTo("after-2");
         assertThat(CursorPageResponse.ofCursor(List.of(3L, 2L), 2, id -> "x").getNextCursor()).isNull();
     }
+
+    // ---- score cursor (explore)
+
+    @Test
+    void scoreCursor_shouldRoundTripExactly_includingDoublesThatAreHardToPrint() {
+        for (double score : new double[]{0.0, 0.375, 1.0 / 3.0, 27.576771338315474, 1e-9, 123456789.123456789}) {
+            CursorUtil.ScoreKeyset keyset = CursorUtil.decodeScore(CursorUtil.encodeScore(1_793_811_067L, score, 42L));
+
+            assertThat(keyset.score()).as("score %s", score).isEqualTo(score);   // exact: it is compared with = in SQL
+            assertThat(keyset.asOfEpochSeconds()).isEqualTo(1_793_811_067L);
+            assertThat(keyset.id()).isEqualTo(42L);
+        }
+    }
+
+    @Test
+    void scoreCursor_shouldBeNullForMissingCursor() {
+        assertThat(CursorUtil.decodeScore(null)).isNull();
+        assertThat(CursorUtil.decodeScore("  ")).isNull();
+    }
+
+    @Test
+    void scoreCursor_shouldRejectMalformedValuesAndOtherKindsOfCursor() {
+        java.util.function.Function<String, String> enc = raw ->
+                java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(raw.getBytes());
+
+        for (String bad : List.of("%%%", enc.apply("garbage"), enc.apply("1|2"), enc.apply("1|x|3"), enc.apply("a|1.0|3"),
+                enc.apply("-1|1.0|3"), enc.apply("1|1.0|-3"), enc.apply("1|NaN|3"), enc.apply("1|Infinity|3"),
+                enc.apply("1|-0.5|3"), enc.apply("1|1.0|3|4"),
+                CursorUtil.encode(42L),
+                CursorUtil.encode(java.time.LocalDateTime.of(2026, 11, 4, 12, 0), 5L))) {
+            assertThatThrownBy(() -> CursorUtil.decodeScore(bad))
+                    .as("cursor %s", bad)
+                    .isInstanceOf(BadRequestException.class)
+                    .hasMessage("Invalid cursor");
+        }
+    }
 }

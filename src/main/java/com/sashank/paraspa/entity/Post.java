@@ -2,6 +2,7 @@ package com.sashank.paraspa.entity;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
+import org.hibernate.annotations.BatchSize;
 import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -31,6 +32,9 @@ public class Post {
     private String content;
 
     /** Up to 3 skill tags, in the order the author gave them. */
+    // @BatchSize: when a page of posts is mapped, Hibernate loads this collection for up to 100 posts in ONE query
+    // (WHERE post_id IN (...)) instead of one query per post. Same for media below.
+    @BatchSize(size = 100)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
     @ManyToMany
@@ -41,6 +45,7 @@ public class Post {
     private List<Skill> skills = new ArrayList<>();
 
     /** Up to 4 images. Removing the post removes these rows (cascade). */
+    @BatchSize(size = 100)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
     @OneToMany(mappedBy = "post", cascade = CascadeType.ALL, orphanRemoval = true)

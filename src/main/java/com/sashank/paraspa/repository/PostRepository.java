@@ -38,6 +38,10 @@ public interface PostRepository extends JpaRepository<Post, Long> {
                                     @Param("id") Long id,
                                     Pageable pageable);
 
+    /** Loads posts with their authors in one statement (the caller restores the order). */
+    @Query("SELECT p FROM Post p JOIN FETCH p.author WHERE p.id IN :ids")
+    List<Post> findAllWithAuthorByIdIn(@Param("ids") Collection<Long> ids);
+
     // Atomic counter updates (no read-modify-write, so concurrent likes/comments cannot lose updates).
     // clearAutomatically so a following read in the same transaction sees the new value.
 
