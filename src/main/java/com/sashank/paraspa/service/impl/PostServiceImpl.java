@@ -8,6 +8,7 @@ import com.sashank.paraspa.entity.PostMedia;
 import com.sashank.paraspa.entity.Skill;
 import com.sashank.paraspa.entity.User;
 import com.sashank.paraspa.exception.BadRequestException;
+import com.sashank.paraspa.event.PostLikedEvent;
 import com.sashank.paraspa.exception.ResourceNotFoundException;
 import com.sashank.paraspa.repository.FollowRepository;
 import com.sashank.paraspa.repository.CommentRepository;
@@ -22,6 +23,7 @@ import com.sashank.paraspa.util.DtoMapper;
 import com.sashank.paraspa.util.ImageFormat;
 import com.sashank.paraspa.util.PaginationUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -63,6 +65,9 @@ public class PostServiceImpl implements PostService {
 
     @Autowired
     private StorageService storageService;
+
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
 
     @Autowired
     private DtoMapper dtoMapper;
@@ -224,12 +229,14 @@ public class PostServiceImpl implements PostService {
         if (!userRepository.existsById(userId)) {
             throw new ResourceNotFoundException("User not found");
         }
-        findPost(postId);
+        Post likedPost = findPost(postId);
 
         // The INSERT ... ON CONFLICT DO NOTHING is atomic: when the same user sends this twice at once, exactly
         // one request inserts a row and only that one bumps the counter, so likeCount always equals the row count.
         if (postLikeRepository.insertIfAbsent(postId, userId, LocalDateTime.now()) == 1) {
             postRepository.incrementLikeCount(postId);
+            // only a like that was really added is news; a repeated PUT publishes nothing
+            eventPublisher.publishEvent(new PostLikedEvent(postId, likedPost.getAuthor().getId(), userId));
         }
 
         return toResponse(findPost(postId), userId);

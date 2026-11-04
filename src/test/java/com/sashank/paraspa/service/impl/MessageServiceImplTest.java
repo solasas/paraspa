@@ -16,6 +16,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Pageable;
 
 import java.util.List;
@@ -41,6 +42,9 @@ class MessageServiceImplTest {
 
     @Mock
     private DtoMapper dtoMapper;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private MessageServiceImpl messageService;
@@ -259,5 +263,47 @@ class MessageServiceImplTest {
                 .isInstanceOf(BadRequestException.class);
 
         verify(messageRepository, never()).findConversation(anyLong(), anyLong(), any(Pageable.class));
+    }
+
+
+    // ------------------------------------------------------------ events
+
+    @Test
+    void sendMessage_shouldPublishAMessageSentEvent() {
+        User sender = User.builder().id(1L).build();
+        User receiver = User.builder().id(2L).build();
+        when(userRepository.findById(1L)).thenReturn(Optional.of(sender));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(receiver));
+        when(messageRepository.save(any(Message.class))).thenAnswer(invocation -> {
+            Message m = invocation.getArgument(0);
+            m.setId(900L);
+            return m;
+        });
+        when(dtoMapper.toMessageResponse(any(Message.class))).thenReturn(MessageResponse.builder().build());
+
+        messageService.sendMessage(1L, SendMessageRequest.builder().receiverId(2L).content("hi").build());
+
+        verify(eventPublisher).publishEvent(new com.sashank.paraspa.event.MessageSentEvent(900L, 1L, 2L));
+    }
+
+    @Test
+    void sendMessage_shouldPublishNothing_whenItIsRejected() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(User.builder().id(1L).build()));
+
+        assertThatThrownBy(() -> messageService.sendMessage(1L, SendMessageRequest.builder().receiverId(1L).content("hi").build()))
+                .isInstanceOf(BadRequestException.class);
+
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    void getConversation_shouldPublishNothing() {
+        User other = User.builder().id(2L).build();
+        when(userRepository.findById(2L)).thenReturn(Optional.of(other));
+        when(messageRepository.findConversation(eq(1L), eq(2L), any(Pageable.class))).thenReturn(List.of());
+
+        messageService.getConversation(1L, 2L, 0, 20);
+
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
     }
 }

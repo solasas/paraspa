@@ -16,6 +16,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
 
@@ -41,6 +42,9 @@ class FollowServiceImplTest {
 
     @Mock
     private DtoMapper dtoMapper;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private FollowServiceImpl followService;
@@ -247,5 +251,62 @@ class FollowServiceImplTest {
         assertThatThrownBy(() -> followService.getFollowStatus(1L, 9L))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("User not found");
+    }
+
+
+    // ------------------------------------------------------------ events
+
+    @Test
+    void followUser_shouldPublishAFollowedEvent_whenTheFollowIsNew() {
+        stubBothUsers();
+        when(followRepository.findByFollowerIdAndFollowingId(1L, 2L)).thenReturn(Optional.empty());
+        when(followRepository.save(any(Follow.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(dtoMapper.toFollowResponse(any(Follow.class))).thenReturn(FollowResponse.builder().build());
+
+        followService.followUser(1L, 2L);
+
+        verify(eventPublisher).publishEvent(new com.sashank.paraspa.event.UserFollowedEvent(1L, 2L));
+    }
+
+    @Test
+    void followUser_shouldPublishNothing_whenAlreadyFollowing() {
+        Follow existing = Follow.builder().id(10L).follower(me).following(target).build();
+        stubBothUsers();
+        when(followRepository.findByFollowerIdAndFollowingId(1L, 2L)).thenReturn(Optional.of(existing));
+        when(dtoMapper.toFollowResponse(existing)).thenReturn(FollowResponse.builder().build());
+
+        followService.followUser(1L, 2L);
+
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    void followUser_shouldPublishNothing_whenASimultaneousRequestWonTheRace() {
+        Follow winner = Follow.builder().id(11L).follower(me).following(target).build();
+        stubBothUsers();
+        when(followRepository.findByFollowerIdAndFollowingId(1L, 2L)).thenReturn(Optional.empty(), Optional.of(winner));
+        when(followRepository.save(any(Follow.class))).thenThrow(new DataIntegrityViolationException("duplicate"));
+        when(dtoMapper.toFollowResponse(winner)).thenReturn(FollowResponse.builder().build());
+
+        followService.followUser(1L, 2L);
+
+        verify(eventPublisher, never()).publishEvent(any(Object.class));   // the request that really inserted it publishes
+    }
+
+    @Test
+    void followUser_shouldPublishNothing_whenTheFollowIsRejected() {
+        assertThatThrownBy(() -> followService.followUser(1L, 1L)).isInstanceOf(BadRequestException.class);
+
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    void unfollowUser_shouldPublishNothing() {
+        when(userRepository.existsById(2L)).thenReturn(true);
+        when(followRepository.findByFollowerIdAndFollowingId(1L, 2L)).thenReturn(Optional.of(Follow.builder().id(1L).build()));
+
+        followService.unfollowUser(1L, 2L);
+
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
     }
 }

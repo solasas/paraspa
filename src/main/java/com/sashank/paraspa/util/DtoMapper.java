@@ -186,6 +186,21 @@ public class DtoMapper {
                 .build();
     }
 
+    public NotificationResponse toNotificationResponse(Notification notification) {
+        if (notification == null) {
+            return null;
+        }
+        return NotificationResponse.builder()
+                .id(notification.getId())
+                .type(notification.getType())
+                .targetType(notification.getTargetType())
+                .targetId(notification.getTargetId())
+                .actor(toPublicUserResponse(notification.getActor()))
+                .read(notification.isRead())
+                .createdAt(notification.getCreatedAt())
+                .build();
+    }
+
     public CommentResponse toCommentResponse(Comment comment) {
         if (comment == null) {
             return null;

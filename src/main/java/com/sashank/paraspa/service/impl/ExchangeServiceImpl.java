@@ -7,6 +7,8 @@ import com.sashank.paraspa.entity.SkillExchange;
 import com.sashank.paraspa.entity.User;
 import com.sashank.paraspa.enums.ExchangeStatus;
 import com.sashank.paraspa.enums.SkillType;
+import com.sashank.paraspa.event.ExchangeAcceptedEvent;
+import com.sashank.paraspa.event.ExchangeRequestedEvent;
 import com.sashank.paraspa.exception.BadRequestException;
 import com.sashank.paraspa.exception.ResourceNotFoundException;
 import com.sashank.paraspa.repository.SkillExchangeRepository;
@@ -17,6 +19,7 @@ import com.sashank.paraspa.service.ExchangeService;
 import com.sashank.paraspa.util.DtoMapper;
 import com.sashank.paraspa.util.PaginationUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import java.util.List;
 
@@ -34,6 +37,9 @@ public class ExchangeServiceImpl implements ExchangeService {
 
     @Autowired
     private UserSkillRepository userSkillRepository;
+
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
 
     @Autowired
     private DtoMapper dtoMapper;
@@ -74,6 +80,7 @@ public class ExchangeServiceImpl implements ExchangeService {
                 .build();
 
         exchange = exchangeRepository.save(exchange);
+        eventPublisher.publishEvent(new ExchangeRequestedEvent(exchange.getId(), requester.getId(), receiver.getId()));
         return dtoMapper.toExchangeResponse(exchange);
     }
 
@@ -128,6 +135,7 @@ public class ExchangeServiceImpl implements ExchangeService {
 
         exchange.setStatus(ExchangeStatus.ACCEPTED);
         exchange = exchangeRepository.save(exchange);
+        eventPublisher.publishEvent(new ExchangeAcceptedEvent(exchange.getId(), exchange.getRequester().getId(), userId));
         return dtoMapper.toExchangeResponse(exchange);
     }
 

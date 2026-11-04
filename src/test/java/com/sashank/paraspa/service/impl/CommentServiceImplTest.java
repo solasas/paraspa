@@ -21,6 +21,7 @@ import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Pageable;
 
 import java.util.ArrayList;
@@ -46,6 +47,9 @@ class CommentServiceImplTest {
     @Mock private PostRepository postRepository;
     @Mock private UserRepository userRepository;
     @Mock private DtoMapper dtoMapper;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private CommentServiceImpl commentService;
@@ -391,5 +395,53 @@ class CommentServiceImplTest {
                 .hasMessage("Comment not found");
 
         verify(postRepository, never()).decrementCommentCount(any(), anyLong());
+    }
+
+
+    // ------------------------------------------------------------ events
+
+    @Test
+    void addComment_shouldPublishACommentEventForATopLevelComment() {
+        stubPost();
+
+        commentService.addComment(1L, 100L, request("nice", null));
+
+        // post 100 is by user 2; the new comment (id 50) is by user 1; no parent
+        verify(eventPublisher).publishEvent(new com.sashank.paraspa.event.CommentAddedEvent(100L, 2L, 50L, 1L, null));
+    }
+
+    @Test
+    void addComment_shouldPublishACommentEventNamingTheParentsAuthorForAReply() {
+        stubPost();
+        Comment topLevel = comment(10L, post, stranger, null);   // written by user 3
+        when(commentRepository.findByIdAndPostId(10L, 100L)).thenReturn(Optional.of(topLevel));
+
+        commentService.addComment(1L, 100L, request("agreed", 10L));
+
+        verify(eventPublisher).publishEvent(new com.sashank.paraspa.event.CommentAddedEvent(100L, 2L, 50L, 1L, 3L));
+    }
+
+    @Test
+    void addComment_shouldPublishNothing_whenTheReplyIsRejected() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(me));
+        when(postRepository.findById(100L)).thenReturn(Optional.of(post));
+        Comment reply = comment(11L, post, stranger, comment(10L, post, stranger, null));
+        when(commentRepository.findByIdAndPostId(11L, 100L)).thenReturn(Optional.of(reply));
+
+        assertThatThrownBy(() -> commentService.addComment(1L, 100L, request("too deep", 11L)))
+                .isInstanceOf(BadRequestException.class);
+
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    void deleteComment_shouldPublishNothing() {
+        Comment byMe = comment(10L, post, me, null);
+        when(commentRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(byMe));
+        when(commentRepository.countByParentId(10L)).thenReturn(0L);
+
+        commentService.deleteComment(1L, 10L);
+
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
     }
 }

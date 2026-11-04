@@ -25,6 +25,7 @@ import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.mock.web.MockMultipartFile;
@@ -64,6 +65,9 @@ class PostServiceImplTest {
     @Mock private SkillRepository skillRepository;
     @Mock private StorageService storageService;
     @Mock private DtoMapper dtoMapper;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private PostServiceImpl postService;
@@ -761,5 +765,34 @@ class PostServiceImplTest {
         when(dtoMapper.toPostResponse(post, true)).thenReturn(PostResponse.builder().likedByMe(true).build());
 
         assertThat(postService.getPost(1L, 100L).isLikedByMe()).isTrue();
+    }
+
+
+    // ------------------------------------------------------------ events
+
+    @Test
+    void likePost_shouldPublishALikedEvent_onlyWhenTheLikeWasReallyAdded() {
+        Post post = Post.builder().id(100L).author(User.builder().id(2L).build()).build();
+        when(userRepository.existsById(1L)).thenReturn(true);
+        when(postRepository.findById(100L)).thenReturn(Optional.of(post));
+        when(postLikeRepository.insertIfAbsent(eq(100L), eq(1L), any(LocalDateTime.class))).thenReturn(1, 0);
+        when(postLikeRepository.existsByPostIdAndUserId(100L, 1L)).thenReturn(true);
+        when(dtoMapper.toPostResponse(any(Post.class), anyBoolean())).thenReturn(PostResponse.builder().build());
+
+        postService.likePost(1L, 100L);   // new like
+        postService.likePost(1L, 100L);   // repeat: nothing new happened
+
+        verify(eventPublisher, org.mockito.Mockito.times(1)).publishEvent(any(Object.class));
+        verify(eventPublisher).publishEvent(new com.sashank.paraspa.event.PostLikedEvent(100L, 2L, 1L));
+    }
+
+    @Test
+    void unlikePost_shouldPublishNothing() {
+        when(postRepository.findById(100L)).thenReturn(Optional.of(Post.builder().id(100L).build()));
+        when(postLikeRepository.deleteLike(100L, 1L)).thenReturn(1);
+
+        postService.unlikePost(1L, 100L);
+
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
     }
 }

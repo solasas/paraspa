@@ -5,6 +5,7 @@ import com.sashank.paraspa.dto.response.ConversationResponse;
 import com.sashank.paraspa.dto.response.MessageResponse;
 import com.sashank.paraspa.entity.Message;
 import com.sashank.paraspa.entity.User;
+import com.sashank.paraspa.event.MessageSentEvent;
 import com.sashank.paraspa.exception.BadRequestException;
 import com.sashank.paraspa.exception.ResourceNotFoundException;
 import com.sashank.paraspa.repository.MessageRepository;
@@ -13,6 +14,7 @@ import com.sashank.paraspa.service.MessageService;
 import com.sashank.paraspa.util.DtoMapper;
 import com.sashank.paraspa.util.PaginationUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -29,6 +31,9 @@ public class MessageServiceImpl implements MessageService {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
 
     @Autowired
     private DtoMapper dtoMapper;
@@ -53,6 +58,7 @@ public class MessageServiceImpl implements MessageService {
                 .build();
 
         message = messageRepository.save(message);
+        eventPublisher.publishEvent(new MessageSentEvent(message.getId(), senderId, receiver.getId()));
         return dtoMapper.toMessageResponse(message);
     }
 

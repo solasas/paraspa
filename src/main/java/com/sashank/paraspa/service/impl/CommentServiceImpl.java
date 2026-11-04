@@ -6,6 +6,7 @@ import com.sashank.paraspa.dto.response.CursorPageResponse;
 import com.sashank.paraspa.entity.Comment;
 import com.sashank.paraspa.entity.Post;
 import com.sashank.paraspa.entity.User;
+import com.sashank.paraspa.event.CommentAddedEvent;
 import com.sashank.paraspa.exception.BadRequestException;
 import com.sashank.paraspa.exception.ResourceNotFoundException;
 import com.sashank.paraspa.repository.CommentRepository;
@@ -16,6 +17,7 @@ import com.sashank.paraspa.util.CursorUtil;
 import com.sashank.paraspa.util.DtoMapper;
 import com.sashank.paraspa.util.PaginationUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -38,6 +40,9 @@ public class CommentServiceImpl implements CommentService {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
 
     @Autowired
     private DtoMapper dtoMapper;
@@ -77,6 +82,8 @@ public class CommentServiceImpl implements CommentService {
                 .build());
 
         postRepository.incrementCommentCount(postId);
+        eventPublisher.publishEvent(new CommentAddedEvent(postId, post.getAuthor().getId(), comment.getId(), userId,
+                parent == null ? null : parent.getAuthor().getId()));
         return dtoMapper.toCommentResponse(comment);
     }
 

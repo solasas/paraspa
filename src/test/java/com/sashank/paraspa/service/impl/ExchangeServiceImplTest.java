@@ -20,6 +20,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.Optional;
 
@@ -48,6 +49,9 @@ class ExchangeServiceImplTest {
 
     @Mock
     private DtoMapper dtoMapper;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private ExchangeServiceImpl exchangeService;
@@ -139,6 +143,7 @@ class ExchangeServiceImplTest {
         User receiver = User.builder().id(userId).build();
         SkillExchange exchange = SkillExchange.builder()
                 .id(exchangeId)
+                .requester(User.builder().id(1L).build())
                 .receiver(receiver)
                 .status(ExchangeStatus.PENDING)
                 .build();
@@ -280,5 +285,71 @@ class ExchangeServiceImplTest {
                 .isInstanceOf(BadRequestException.class);
         assertThatThrownBy(() -> exchangeService.getReceivedExchanges(1L, -1, 20))
                 .isInstanceOf(BadRequestException.class);
+    }
+
+
+    // ------------------------------------------------------------ events
+
+    @Test
+    void createExchange_shouldPublishARequestedEvent() {
+        User requester = User.builder().id(1L).build();
+        User receiver = User.builder().id(2L).build();
+        CreateExchangeRequest request = CreateExchangeRequest.builder()
+                .receiverId(2L).offeredSkillId(10L).wantedSkillId(20L).build();
+        when(userRepository.findById(1L)).thenReturn(Optional.of(requester));
+        when(userRepository.findById(2L)).thenReturn(Optional.of(receiver));
+        when(skillRepository.findById(10L)).thenReturn(Optional.of(Skill.builder().id(10L).build()));
+        when(skillRepository.findById(20L)).thenReturn(Optional.of(Skill.builder().id(20L).build()));
+        when(userSkillRepository.existsByUserIdAndSkillIdAndType(1L, 10L, SkillType.TEACH)).thenReturn(true);
+        when(userSkillRepository.existsByUserIdAndSkillIdAndType(2L, 20L, SkillType.TEACH)).thenReturn(true);
+        when(exchangeRepository.save(any(SkillExchange.class))).thenAnswer(invocation -> {
+            SkillExchange e = invocation.getArgument(0);
+            e.setId(77L);
+            return e;
+        });
+        when(dtoMapper.toExchangeResponse(any(SkillExchange.class))).thenReturn(ExchangeResponse.builder().build());
+
+        exchangeService.createExchange(1L, request);
+
+        verify(eventPublisher).publishEvent(new com.sashank.paraspa.event.ExchangeRequestedEvent(77L, 1L, 2L));
+    }
+
+    @Test
+    void createExchange_shouldPublishNothing_whenItIsRejected() {
+        CreateExchangeRequest toSelf = CreateExchangeRequest.builder().receiverId(1L).offeredSkillId(10L).wantedSkillId(20L).build();
+        when(userRepository.findById(1L)).thenReturn(Optional.of(User.builder().id(1L).build()));
+
+        assertThatThrownBy(() -> exchangeService.createExchange(1L, toSelf)).isInstanceOf(BadRequestException.class);
+
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    void acceptExchange_shouldPublishAnAcceptedEventNamingTheRequesterAndTheAccepter() {
+        SkillExchange exchange = SkillExchange.builder().id(100L)
+                .requester(User.builder().id(1L).build())
+                .receiver(User.builder().id(2L).build())
+                .status(ExchangeStatus.PENDING).build();
+        when(exchangeRepository.findById(100L)).thenReturn(Optional.of(exchange));
+        when(exchangeRepository.save(any(SkillExchange.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(dtoMapper.toExchangeResponse(any(SkillExchange.class))).thenReturn(ExchangeResponse.builder().build());
+
+        exchangeService.acceptExchange(2L, 100L);
+
+        verify(eventPublisher).publishEvent(new com.sashank.paraspa.event.ExchangeAcceptedEvent(100L, 1L, 2L));
+    }
+
+    @Test
+    void rejectAndCompleteExchange_shouldPublishNothing() {
+        SkillExchange pending = SkillExchange.builder().id(100L)
+                .requester(User.builder().id(1L).build()).receiver(User.builder().id(2L).build())
+                .status(ExchangeStatus.PENDING).build();
+        when(exchangeRepository.findById(100L)).thenReturn(Optional.of(pending));
+        when(exchangeRepository.save(any(SkillExchange.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(dtoMapper.toExchangeResponse(any(SkillExchange.class))).thenReturn(ExchangeResponse.builder().build());
+
+        exchangeService.rejectExchange(2L, 100L);
+
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
     }
 }
