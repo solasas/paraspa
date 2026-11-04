@@ -59,8 +59,13 @@ class RatingServiceImplTest {
         Long sessionId = 100L;
 
         User ratedBy = User.builder().id(userId).build();
+        SkillExchange exchange = SkillExchange.builder()
+                .requester(ratedBy)
+                .receiver(User.builder().id(2L).build())
+                .build();
         Session session = Session.builder()
                 .id(sessionId)
+                .exchange(exchange)
                 .status(SessionStatus.SCHEDULED)
                 .build();
 
@@ -166,5 +171,79 @@ class RatingServiceImplTest {
                 Arguments.of(List.of(1, 2, 3, 4, 5), 3.0),
                 Arguments.of(List.of(5, 5, 4), 14.0 / 3)
         );
+    }
+
+
+    @Test
+    void rateSession_shouldThrowResourceNotFoundException_whenRaterIsNotAParticipant() {
+        Long outsiderId = 99L;
+        Long sessionId = 100L;
+
+        User outsider = User.builder().id(outsiderId).build();
+        SkillExchange exchange = SkillExchange.builder()
+                .requester(User.builder().id(1L).build())
+                .receiver(User.builder().id(2L).build())
+                .build();
+        Session session = Session.builder()
+                .id(sessionId)
+                .exchange(exchange)
+                .status(SessionStatus.COMPLETED)
+                .build();
+
+        when(userRepository.findById(outsiderId)).thenReturn(Optional.of(outsider));
+        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session));
+
+        assertThatThrownBy(() -> ratingService.rateSession(outsiderId, sessionId,
+                CreateRatingRequest.builder().stars(5).build()))
+                .isInstanceOf(com.sashank.paraspa.exception.ResourceNotFoundException.class)
+                .hasMessage("Session not found");
+
+        verify(ratingRepository, never()).save(any());
+    }
+
+    @Test
+    void rateSession_shouldHideSessionStatusFromNonParticipants() {
+        // an outsider must get the same 404 for a not-yet-completed session, not a revealing 400
+        Long outsiderId = 99L;
+        Long sessionId = 100L;
+
+        SkillExchange exchange = SkillExchange.builder()
+                .requester(User.builder().id(1L).build())
+                .receiver(User.builder().id(2L).build())
+                .build();
+        Session session = Session.builder()
+                .id(sessionId)
+                .exchange(exchange)
+                .status(SessionStatus.SCHEDULED)
+                .build();
+
+        when(userRepository.findById(outsiderId)).thenReturn(Optional.of(User.builder().id(outsiderId).build()));
+        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session));
+
+        assertThatThrownBy(() -> ratingService.rateSession(outsiderId, sessionId,
+                CreateRatingRequest.builder().stars(5).build()))
+                .isInstanceOf(com.sashank.paraspa.exception.ResourceNotFoundException.class);
+    }
+
+    @Test
+    void rateSession_shouldRateRequester_whenReceiverIsTheRater() {
+        Long sessionId = 100L;
+        User requester = User.builder().id(1L).build();
+        User receiver = User.builder().id(2L).build();
+        SkillExchange exchange = SkillExchange.builder().requester(requester).receiver(receiver).build();
+        Session session = Session.builder().id(sessionId).exchange(exchange).status(SessionStatus.COMPLETED).build();
+
+        when(userRepository.findById(2L)).thenReturn(Optional.of(receiver));
+        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session));
+        when(ratingRepository.findBySessionIdAndRatedById(sessionId, 2L)).thenReturn(Optional.empty());
+        when(ratingRepository.save(any(Rating.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(dtoMapper.toRatingResponse(any(Rating.class))).thenReturn(RatingResponse.builder().build());
+
+        ratingService.rateSession(2L, sessionId, CreateRatingRequest.builder().stars(3).build());
+
+        ArgumentCaptor<Rating> captor = ArgumentCaptor.forClass(Rating.class);
+        verify(ratingRepository).save(captor.capture());
+        assertThat(captor.getValue().getRatedBy()).isEqualTo(receiver);
+        assertThat(captor.getValue().getRatedTo()).isEqualTo(requester);
     }
 }

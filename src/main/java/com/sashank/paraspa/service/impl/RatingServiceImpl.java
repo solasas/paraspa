@@ -41,11 +41,18 @@ public class RatingServiceImpl implements RatingService {
         Session session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Session not found"));
 
+        // Non-participants get 404 so they cannot tell whether a session exists
+        boolean isRequester = session.getExchange().getRequester().getId().equals(userId);
+        boolean isReceiver = session.getExchange().getReceiver().getId().equals(userId);
+        if (!isRequester && !isReceiver) {
+            throw new ResourceNotFoundException("Session not found");
+        }
+
         if (!session.getStatus().equals(SessionStatus.COMPLETED)) {
             throw new BadRequestException("Can only rate completed sessions");
         }
 
-        User otherParticipant = session.getExchange().getRequester().getId().equals(userId) ?
+        User otherParticipant = isRequester ?
                 session.getExchange().getReceiver() :
                 session.getExchange().getRequester();
 
