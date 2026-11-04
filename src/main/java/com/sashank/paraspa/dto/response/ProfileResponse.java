@@ -16,6 +16,7 @@ public class ProfileResponse {
     private String email;
     private String bio;
     private String city;
+    private String avatarUrl;
     private List<UserSkillResponse> teachSkills;
     private List<UserSkillResponse> learnSkills;
     private Double averageRating;

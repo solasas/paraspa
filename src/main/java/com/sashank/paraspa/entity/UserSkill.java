@@ -10,7 +10,9 @@ import com.sashank.paraspa.enums.SkillType;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "user_skills")
+@Table(name = "user_skills", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_user_skills_user_skill_type", columnNames = {"user_id", "skill_id", "type"})
+})
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

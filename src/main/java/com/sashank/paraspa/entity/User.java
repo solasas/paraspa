@@ -34,6 +34,9 @@ public class User {
 
     private String city;
 
+    @Column(length = 500)
+    private String avatarUrl;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @Builder.Default

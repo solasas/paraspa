@@ -15,6 +15,7 @@ public class UserResponse {
     private String email;
     private String bio;
     private String city;
+    private String avatarUrl;
     private Double averageRating;
     private Long totalRatings;
 }

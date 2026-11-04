@@ -64,6 +64,12 @@
 			<scope>runtime</scope>
 		</dependency>
 
+		<!-- Flyway: versioned schema migrations (src/main/resources/db/migration) -->
+		<dependency>
+			<groupId>org.flywaydb</groupId>
+			<artifactId>flyway-core</artifactId>
+		</dependency>
+
 		<!-- JWT (jjwt) -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
