@@ -140,6 +140,24 @@ Rules and how they are enforced:
 
 Measured on PostgreSQL with 300,000 notifications (20,000 for one user): the first page of a user's list takes 0.2 ms, the unread badge 3 ms (a partial index on unread rows only, so old read ones cost nothing), marking everything read 28 ms.
 
+### Follows and posts
+
+**Follows** (`PUT/DELETE /api/users/{id}/follow`)
+
+- **Idempotent.** Following someone you already follow (or already asked to follow) returns the existing follow; unfollowing someone you do not follow is a no-op. Two identical requests at the same moment are safe: the unique `(follower_id, following_id)` constraint rejects the second insert, the service re-reads the winner's row and answers the same way, and only the request that really created the follow publishes a notification.
+- **Rules.** No self-follows (400, also a database `CHECK`), no follows between users who have blocked each other.
+- **Public vs private accounts.** Following a public account is `ACCEPTED` straight away. Following a private one creates a `PENDING` request: the owner lists them (`GET /api/follow-requests`) and accepts (the requester is notified) or rejects (the request is deleted, so they can ask again).
+- **Follow status** (`GET /api/users/{id}/follow-status`) answers everything a profile screen needs in one call: `followedByMe`, `followRequestedByMe`, `followingMe`, `followersCount`, `followingCount`. Counts, follower/following lists, feeds and suggestions use accepted follows only; a private account's lists are a 403 to non-followers.
+
+**Posts** (`POST /api/posts`)
+
+- **Content.** Text (up to 2,000 characters) and/or up to 4 images, and up to 3 skill tags from the catalog. A post needs text or at least one image. Send JSON (`{content, skillIds}`) for a text post or `multipart/form-data` (`content`, `skillIds`, `images`) with images.
+- **Images.** Each image is at most 2 MB and must really be a JPG, PNG or WebP (checked from the file's bytes, not its declared type). Everything is validated before anything is stored; the files are then written under random names and, if saving the post fails, deleted again, so a failed request leaves no orphan files. Deleting a post removes its likes, comments, media rows and image files.
+- **Where posts appear.** A user's profile (`GET /api/users/{id}/posts`, cursor-paginated), the home feed and explore (see below), and the general list (`GET /api/posts`, filterable by `skillId`). Every post response carries the author, images in order, skill tags, `likeCount`, `commentCount` and `likedByMe`.
+- **Likes** (`PUT/DELETE /api/posts/{id}/like`) are idempotent and race-safe: the like is an `INSERT ... ON CONFLICT DO NOTHING` and the counter moves only when a row was really inserted or deleted, so `likeCount` always equals the number of likes. `GET /api/posts/{id}/likes` lists who liked it.
+- **Comments** (`POST /api/posts/{id}/comments`, up to 500 characters) can be replies (`parentId`) one level deep: you reply to a top-level comment, not to a reply. The list is cursor-paginated by top-level comment, with all replies of a page loaded in one query and nested under their parent. A comment can be deleted by its author or by the post's author; deleting a top-level comment removes its replies, and `commentCount` stays exact.
+- **Visibility.** Posts, comments and likes of users you blocked (or who blocked you) are invisible, and a private account's posts are visible only to accepted followers; a hidden post is a plain 404.
+
 ### Feed design: fan-out on read
 
 There are two classic ways to build a "posts from the people I follow" feed:
