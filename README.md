@@ -19,32 +19,76 @@ git clone https://github.com/solasas/paraspa-mobileapp.git
 
 ## Features
 
-- **Accounts**: register and login with a 15-minute JWT access token plus a rotating refresh token (`/api/auth/refresh`, `/api/auth/logout`), edit profile (name, bio, city), change password
-- **Skills**: shared skill catalog; each user lists skills to **teach** and **learn** with a level
+**At a glance:** skill matching · swap requests · scheduled sessions with rescheduling · ratings · real-time chat · follows (public and private accounts) · posts with images, likes and nested comments · home feed and trending explore · real-time notifications · blocks, reports and admin moderation · refresh-token auth with rate limiting · Flyway migrations, Swagger, health checks, Docker and CI.
+
+### Skill exchange (the core loop)
+
+Register → add skills → find a match → send an exchange → accept → schedule sessions → complete → rate.
+
+- **Skill catalog**: shared skills grouped by category (`MUSIC`, `TECH`, `COOKING`, `LANGUAGE`, `FITNESS`, `ART`, `OTHER`); anyone can add a new one
+- **Your skills**: list what you **teach** and what you want to **learn**, each with a level (`BEGINNER`, `INTERMEDIATE`, `ADVANCED`)
 - **Availability**: weekly time slots, visible on any user's profile
-- **Matching & search**: find users who teach what you want to learn (mutual matches first); filter by skill, city, level, rating and availability
-- **Exchanges**: send a swap request; the receiver accepts or rejects; either side completes it
-- **Sessions**: schedule online or offline sessions, complete or cancel, propose a new time (the other person accepts or rejects)
-- **Ratings**: rate your partner 1-5 with a review after a completed session; per-user rating summary
-- **Chat**: real-time messaging over WebSocket (STOMP) with persisted history and unread counts
-- **Public profiles & avatars**: `GET /api/users/{id}` (never exposes email); upload a JPG/PNG/WebP profile picture (max 2 MB), served at `/files/**`
-- **Pagination**: `page`/`size` (default 20, max 100) on search, exchanges, message history, follower lists and the explore/feed lists; cursor pagination (`items` + `nextCursor`, keyed on `createdAt` + `id`) for a user's posts and for new endpoints
-- **Follows**: follow and unfollow users (both idempotent; no self-follows), paginated follower and following lists, follow status, and follower/following counts on the public profile
-- **Notifications**: follows, likes, comments, replies, exchange requests/acceptances and messages notify the person concerned (never yourself; repeated likes/follows collapse into one). A REST list with an unread badge and read/read-all, plus a real-time push to `/user/queue/notifications` over the existing WebSocket
-- **Feeds**: a home feed (`/api/feed`: people you follow plus you, newest first), trending discovery (`/api/explore`: last 7 days, engagement with time decay, people you do not follow) and suggested people (`/api/explore/people`), all without N+1 queries (5 SQL statements per feed or explore request, 6 for suggestions, measured)
-- **Safety**: block users (hidden both ways everywhere, follows removed, no follow/message/exchange), report users, posts and comments (one report per reporter and target), private accounts (a follow becomes a request the owner accepts or rejects; only accepted followers see the posts), and an admin role to review reports and delete any post
-- **Posts & feed**: text and/or up to 4 images (JPG/PNG/WebP, 2 MB each) with up to 3 skill tags; browse all posts or a feed of people you follow (both filterable by skill tag), a user's posts with cursor pagination, idempotent likes with a liker list, comments with one level of replies (cursor-paginated, nested), and stored counters kept exact under concurrent requests
+- **Matching**: people who teach what you want to learn, with **mutual matches** (you can teach them something back) first; a fixed 5 SQL statements however many users exist
+- **Search**: filter users by skill, city, level, minimum rating and "available only"
+- **Exchanges**: send a swap request (skill offered for skill wanted); the receiver accepts or rejects, either side marks it complete
+- **Sessions**: schedule `ONLINE` or `OFFLINE` sessions inside an exchange, complete or cancel them
+- **Rescheduling**: propose a new time for a session; the other person accepts or rejects
+- **Ratings & reviews**: rate your partner 1-5 with a review after a completed session, one rating per person per session; per-user rating summary on the profile
+
+### Social
+
+- **Profiles**: name, bio, city, avatar (JPG/PNG/WebP up to 2 MB, checked by file content); public profiles never expose email; follower/following counts
+- **Follows**: idempotent follow/unfollow, no self-follows, paginated follower and following lists, follow status
+- **Private accounts**: a follow becomes a request the owner accepts or rejects; only accepted followers see the posts. Switching back to public accepts every waiting request
+- **Posts**: text and/or up to 4 images, up to 3 skill tags; browse all posts or filter by skill tag; delete your own
+- **Likes**: idempotent like/unlike with a liker list; counters stay exact under simultaneous requests
+- **Comments**: comments with one level of nested replies (max 500 chars), cursor-paginated; deletable by the comment author or the post author
+
+### Feeds and discovery
+
+- **Home feed** (`/api/feed`): you plus the people you follow, newest first, fan-out on read with keyset pagination (about the same cost on page 1 and page 400)
+- **Explore** (`/api/explore`): trending posts of the last 7 days from people you do not follow, ranked by engagement with time decay; filterable by skill
+- **Suggested people** (`/api/explore/people`): users whose skills complement yours, minus those you already follow
+- **No N+1 queries**: 5 SQL statements per feed or explore page whatever its size, enforced by tests that count statements
+
+### Real time
+
+- **Chat**: one-to-one messaging over WebSocket (STOMP) with JWT auth, persisted history, conversation list and unread counts; also available over REST
+- **Notifications**: follows, follow requests and acceptances, likes, comments, replies, exchange requests/acceptances and messages, as a REST list (unread badge, mark one or all read) and a live push to `/user/queue/notifications`. Never notified about yourself; repeated likes/follows collapse into one; messages from the same person collapse while unread. Built on domain events handled after commit, off the request thread
+
+### Safety and moderation
+
+- **Blocks**: symmetric and total. The two users disappear from each other's feeds, explore, search, matches, suggestions, posts, comments and likes; a direct request is a plain 404. Blocking removes follows, follow requests and notifications between them, and stops follows, messages and exchanges
+- **Reports**: report a user, post or comment with a reason (`SPAM`, `HARASSMENT`, `HATE_SPEECH`, `SEXUAL_CONTENT`, `VIOLENCE`, `MISINFORMATION`, `IMPERSONATION`, `OTHER` with details); one report per reporter and target
+- **Admin role**: admins review open/resolved reports, resolve them with a note, and can delete any post. The role is read from the database on every request, so a demotion takes effect immediately
+
+### Security
+
+- **Auth**: 15-minute JWT access tokens plus **rotating, single-use refresh tokens** stored only as SHA-256 hashes; reuse of an old refresh token is treated as theft and revokes every session; logout revokes one session, a password change revokes all
+- **Rate limiting**: login, refresh, registration and message sending (REST and WebSocket share one budget); `429` with `Retry-After`
+- **Access control**: the acting user always comes from the token; exchanges, sessions and reschedules are visible only to participants; email is never exposed publicly; BCrypt passwords
+- **Secrets only from the environment**: the app refuses to start without a database password and a 64+ character JWT secret
+
+### Engineering and operations
+
+- **Pagination everywhere**: `page`/`size` (max 100) on lists, opaque `(createdAt, id)` cursors on posts, comments, feeds and notifications, so scrolling never skips or repeats items
+- **Schema owned by Flyway** (10 versioned migrations); Hibernate only validates, and database constraints back the business rules (unique ratings, skills, follows, likes, reports)
+- **One JSON error format** for every failure (400/401/403/404/409/429)
+- **API docs**: Swagger UI and an OpenAPI document; Actuator health with liveness/readiness probes
+- **Pluggable storage**: a `StorageService` interface with a local-disk implementation (S3-ready)
+- **Docker**: `docker compose up --build` runs the API and PostgreSQL
+- **Tests and CI**: unit, query, security, end-to-end HTTP and WebSocket tests, plus Testcontainers tests on real PostgreSQL; GitHub Actions runs `./mvnw verify` on every pull request
 
 ## Architecture
 
 ```
 Client --HTTPS/JSON--> /api/**  --+
-Client --WebSocket---> /ws      --+--> Security (JWT) -> Controllers -> Services -> Repositories -> PostgreSQL
+Client --WebSocket---> /ws      --+--> Security (JWT, rate limit) -> Controllers -> Services -> Repositories -> PostgreSQL
 ```
 
 | Layer | Package | Role |
 |---|---|---|
-| Security | `security`, `config` | JWT validation, CORS, BCrypt, WebSocket auth |
+| Security | `security`, `config` | JWT validation, roles, rate limiting, 401/403 JSON handlers, CORS, BCrypt, WebSocket auth, OpenAPI |
 | Controllers | `controller` | REST and STOMP endpoints, request validation |
 | Services | `service`, `service.impl` | Business rules and permission checks |
 | Repositories | `repository` | Spring Data JPA queries |
@@ -61,12 +105,12 @@ User --< SkillExchange >-- Skill (offered, wanted)
 SkillExchange ---< Session ---< RescheduleRequest
 Session ---< Rating (ratedBy -> ratedTo)        User --< Message >-- User
 User --< Notification >-- User (recipient, actor)
-User --< Follow >-- User                        User ---< Post >--- PostMedia (max 4)
+User --< Follow >-- User (PENDING/ACCEPTED)     User ---< Post >--- PostMedia (max 4)
+User --< Block >-- User                         User --< Report (user, post or comment)
+User ---< RefreshToken (hashed, single use)
 Post >---< Skill (max 3 tags, post_skills)     Post ---< PostLike >--- User
 Post ---< Comment >--- User    Comment ---< Comment (replies, one level)
 ```
-
-Flow: register, add skills, find a match, send an exchange, accept, schedule sessions, complete, rate.
 
 ### Notifications: domain events, after commit, off the request thread
 
@@ -247,7 +291,7 @@ Once it runs: Swagger UI at <http://localhost:8080/swagger-ui.html> (use **Autho
 
 **Uploads:** avatars and post images (2 MB each; a request may carry up to 10 MB) are written to `STORAGE_ROOT` (git-ignored). To use S3 later, add another `StorageService` implementation and set `storage.type`.
 
-**Tests and CI:** `./mvnw verify` runs everything (the GitHub Actions workflow in `.github/workflows/ci.yml` does exactly that on every push and pull request, with a PostgreSQL service container). Layers: Mockito unit tests; `@DataJpaTest` query tests on in-memory H2 (the feed and explore tests also count SQL statements); MockMvc security tests (`SecurityMockMvcTest`: no or bad token is 401, wrong role 403, public routes); end-to-end HTTP tests on H2; and **Testcontainers tests on real PostgreSQL** (`PostgresFeedQueryTest`, `PostgresLikeUniquenessTest`, `AuthFlowPostgresTest`, which also runs the real Flyway migrations). Those need a Docker daemon; without Docker they are skipped, or you can point them at an empty scratch database: `TEST_DATABASE_URL=jdbc:postgresql://localhost:5432/paraspa_it TEST_DATABASE_USER=postgres TEST_DATABASE_PASSWORD=... ./mvnw test`. `ParaspaApplicationTests` boots the app against the database named by `DB_*` (in CI the service container; locally your `.env`). Test settings (a throw-away signing key, rate limiting off) are in `src/test/resources/config/application.properties`.
+**Tests and CI:** `./mvnw verify` runs everything (the GitHub Actions workflow in `.github/workflows/ci.yml` does exactly that on pushes to `main` and on every pull request, with a PostgreSQL service container). Layers: Mockito unit tests; `@DataJpaTest` query tests on in-memory H2 (the feed and explore tests also count SQL statements); MockMvc security tests (`SecurityMockMvcTest`: no or bad token is 401, wrong role 403, public routes); end-to-end HTTP tests on H2; and **Testcontainers tests on real PostgreSQL** (`PostgresFeedQueryTest`, `PostgresLikeUniquenessTest`, `AuthFlowPostgresTest`, which also runs the real Flyway migrations). Those need a Docker daemon; without Docker they are skipped, or you can point them at an empty scratch database: `TEST_DATABASE_URL=jdbc:postgresql://localhost:5432/paraspa_it TEST_DATABASE_USER=postgres TEST_DATABASE_PASSWORD=... ./mvnw test`. `ParaspaApplicationTests` boots the app against the database named by `DB_*` (in CI the service container; locally your `.env`). Test settings (a throw-away signing key, rate limiting off) are in `src/test/resources/config/application.properties`.
 
 ## Errors
 
